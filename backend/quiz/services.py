@@ -10,6 +10,8 @@ from datetime import timedelta
 from django.contrib.auth.models import User
 from django.utils import timezone
 
+import random
+
 from .models import (
     CHALLENGE_MARKET,
     CHALLENGE_ODDS_FACTOR,
@@ -17,6 +19,10 @@ from .models import (
     PRESENCE_TTL_SECONDS,
     QUIZ_LOSER_MARKET,
     QUIZ_WINNER_MARKET,
+    SLOT_COSTS,
+    SLOT_MULTIPLIERS,
+    SLOT_SYMBOLS,
+    SLOT_WIN_PROBABILITY,
     STARTING_BUDGET,
     Answer,
     Bet,
@@ -184,6 +190,7 @@ def build_state(user):
             "text": current_q.text,
             "type": current_q.type,
             "options": current_q.options,
+            "bonus_prompt": current_q.bonus_prompt,
         }
 
     scores = current_scores()
@@ -208,13 +215,17 @@ def build_state(user):
 
     # Per-user fields.
     my_answer = None
+    my_bonus_answer = None
     my_mark = None
+    my_bonus_mark = None
     if current_q is not None:
         a = Answer.objects.filter(question=current_q, player=user).first()
         my_answer = a.text if a else None
+        my_bonus_answer = a.bonus_text if a else None
         if game.entry_state == GameState.FINALIZED:
             mk = Mark.objects.filter(question=current_q, player=user).first()
             my_mark = mk.correct if mk else None
+            my_bonus_mark = mk.bonus_correct if mk else None
 
     budget = None
     my_bets = []
@@ -226,13 +237,16 @@ def build_state(user):
     # Admin-only: everyone's answers + marks for the current question.
     admin_answers = []
     if is_admin and current_q is not None:
-        marks_map = {m.player_id: m.correct for m in Mark.objects.filter(question=current_q)}
+        marks = {m.player_id: m for m in Mark.objects.filter(question=current_q)}
         for a in Answer.objects.filter(question=current_q).select_related("player"):
+            mk = marks.get(a.player_id)
             admin_answers.append(
                 {
                     "username": a.player.username,
                     "answer": a.text,
-                    "mark": marks_map.get(a.player_id),
+                    "bonus_answer": a.bonus_text,
+                    "mark": mk.correct if mk else None,
+                    "bonus_mark": mk.bonus_correct if mk else None,
                 }
             )
 
@@ -246,7 +260,9 @@ def build_state(user):
             "username": user.username,
             "is_admin": is_admin,
             "my_answer": my_answer,
+            "my_bonus_answer": my_bonus_answer,
             "my_mark": my_mark,
+            "my_bonus_mark": my_bonus_mark,
             "budget": budget,
             "my_bets": my_bets,
         },
@@ -373,6 +389,59 @@ def place_challenge_bet(user, selections, amount):
     return bet, None
 
 
+# --- Minigames: slot machine -------------------------------------------------
+
+
+def spin_slot(user, cost):
+    """Play one slot-machine spin. Returns (result, error).
+
+    Charges `cost` up front, rolls 3 independent reels, and only pays out when
+    all three match. A matching coin symbol returns the stake multiplied (2× or
+    3×); a matching drink symbol is a physical reward (no coins). Anything else
+    loses the stake. The result carries the reels so the client can animate them.
+    """
+    if is_admin_username(user.username):
+        return None, "Beheerders kunnen niet spelen."
+
+    try:
+        cost = int(cost)
+    except (TypeError, ValueError):
+        return None, "Ongeldige inzet."
+    if cost not in SLOT_COSTS:
+        return None, "Ongeldige inzet."
+
+    player, _ = Player.objects.get_or_create(user=user)
+    if cost > player.budget:
+        return None, "Niet genoeg budget."
+
+    # Decide the outcome first, then build reels to match, so the win rate is
+    # SLOT_WIN_PROBABILITY regardless of the number of symbols. A win sets all
+    # three reels to one random symbol; a loss is any non-matching combination.
+    if random.random() < SLOT_WIN_PROBABILITY:
+        symbol = random.choice(SLOT_SYMBOLS)
+        reels = [symbol, symbol, symbol]
+    else:
+        while True:
+            reels = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
+            if not (reels[0] == reels[1] == reels[2]):
+                break
+        symbol = None
+    win = symbol is not None
+    coins_won = cost * SLOT_MULTIPLIERS.get(symbol, 0) if win else 0
+
+    # Charge the stake and credit any coin winnings in one budget update.
+    player.budget += coins_won - cost
+    player.save(update_fields=["budget"])
+
+    return {
+        "reels": reels,
+        "win": win,
+        "symbol": symbol,
+        "cost": cost,
+        "coins_won": coins_won,
+    }, None
+
+
 # --- Admin actions -----------------------------------------------------------
 
 
@@ -382,8 +451,11 @@ def finalize(game, question):
         return  # already scored — don't double count
 
     for m in Mark.objects.filter(question=question, correct=True).select_related("player"):
+        # 1 point for a correct answer, plus a bonus point when the question's
+        # bonus answer is also correct (text_bonus questions only).
+        points = 1 + (1 if m.bonus_correct else 0)
         score, _ = Score.objects.get_or_create(player=m.player)
-        score.points += 1
+        score.points += points
         score.save(update_fields=["points"])
 
     game.entry_state = GameState.FINALIZED

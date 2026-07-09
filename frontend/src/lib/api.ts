@@ -12,7 +12,7 @@ export const STARTING_BUDGET = 1000;
 
 // --- Types (mirror the build_state payload) ---------------------------------
 
-export type QuestionType = "text" | "multiple_choice";
+export type QuestionType = "text" | "multiple_choice" | "text_bonus";
 export type EntryState = "open" | "closed" | "finalized";
 export type BetStatus = "open" | "won" | "lost";
 export type ChallengeStatus = "pending" | "completed" | "failed";
@@ -35,12 +35,17 @@ export interface CurrentQuestion {
   text: string;
   type: QuestionType;
   options: string[];
+  // Label above the second input for text_bonus questions ("" otherwise).
+  bonus_prompt: string;
 }
 
 export interface AdminAnswer {
   username: string;
   answer: string;
+  // The bonus answer + its verdict (text_bonus questions only).
+  bonus_answer: string;
   mark: boolean | null;
+  bonus_mark: boolean | null;
 }
 
 export interface Market {
@@ -57,6 +62,19 @@ export interface Settlement {
   lost_count: number;
 }
 
+// The four slot-machine symbols; a spin wins only when all 3 reels match.
+export type SlotSymbol = "coin2x" | "coin3x" | "shot" | "sip";
+
+export interface SlotResult {
+  reels: SlotSymbol[];
+  win: boolean;
+  symbol: SlotSymbol | null;
+  cost: number;
+  coins_won: number;
+}
+
+export const SLOT_COSTS = [50, 100, 200] as const;
+
 export interface GameState {
   current_index: number;
   entry_state: EntryState;
@@ -67,7 +85,9 @@ export interface GameState {
     username: string;
     is_admin: boolean;
     my_answer: string | null;
+    my_bonus_answer: string | null;
     my_mark: boolean | null;
+    my_bonus_mark: boolean | null;
     budget: number | null;
     my_bets: Bet[];
   };
@@ -86,6 +106,8 @@ export interface GameState {
   present: string[];
   // Only present on the settle response.
   settlement?: Settlement | null;
+  // Only present on the slot-spin response.
+  spin?: SlotResult | null;
 }
 
 export interface ClaimResponse {
@@ -180,8 +202,12 @@ export function fetchGameState(): Promise<GameState> {
   return request<GameState>("/api/game/state/");
 }
 
-export function submitAnswer(answer: string): Promise<GameState> {
-  return request<GameState>("/api/game/answer/", { method: "POST", body: { answer } });
+// `bonus` is the second answer for text_bonus questions (ignored otherwise).
+export function submitAnswer(answer: string, bonus?: string): Promise<GameState> {
+  return request<GameState>("/api/game/answer/", {
+    method: "POST",
+    body: { answer, bonus },
+  });
 }
 
 export function placeBet(
@@ -206,6 +232,17 @@ export function placeChallengeBet(
   });
 }
 
+// --- Minigames --------------------------------------------------------------
+
+// Spin the slot machine for `cost` coins (50 / 100 / 200). The returned state
+// carries the roll under `spin` and reflects the new budget.
+export function spinSlot(cost: number): Promise<GameState> {
+  return request<GameState>("/api/minigames/slot/", {
+    method: "POST",
+    body: { cost },
+  });
+}
+
 // --- Admin actions ----------------------------------------------------------
 
 export function adminAdvance(index: number): Promise<GameState> {
@@ -220,6 +257,14 @@ export function adminMark(username: string, correct: boolean): Promise<GameState
   return request<GameState>("/api/admin/mark/", {
     method: "POST",
     body: { username, correct },
+  });
+}
+
+// Mark the bonus answer of a text_bonus question, independent of the main mark.
+export function adminMarkBonus(username: string, bonus: boolean): Promise<GameState> {
+  return request<GameState>("/api/admin/mark/", {
+    method: "POST",
+    body: { username, bonus },
   });
 }
 

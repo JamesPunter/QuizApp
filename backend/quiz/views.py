@@ -48,10 +48,15 @@ class SubmitAnswerView(APIView):
         if not text:
             return Response({"detail": "Antwoord is verplicht."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # text_bonus questions carry a second, optional answer.
+        bonus_text = (request.data.get("bonus") or "").strip()
+
         from .models import Answer
 
         Answer.objects.update_or_create(
-            question=question, player=request.user, defaults={"text": text}
+            question=question,
+            player=request.user,
+            defaults={"text": text, "bonus_text": bonus_text},
         )
         return Response(services.build_state(request.user))
 
@@ -75,6 +80,19 @@ class PlaceBetView(APIView):
         if error:
             return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
         return Response(services.build_state(request.user))
+
+
+class SlotSpinView(APIView):
+    """Minigame: one slot-machine spin. Returns the fresh state plus a `spin`
+    field carrying the reels + reward so the client can animate the result."""
+
+    def post(self, request):
+        result, error = services.spin_slot(request.user, request.data.get("cost"))
+        if error:
+            return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
+        state = services.build_state(request.user)
+        state["spin"] = result
+        return Response(state)
 
 
 # --- Admin-facing ------------------------------------------------------------
@@ -122,9 +140,13 @@ class MarkView(APIView):
 
         username = request.data.get("username")
         correct = request.data.get("correct")
-        if username is None or correct is None:
+        # `bonus` marks the bonus answer of a text_bonus question; it is set
+        # independently of the main mark, so at least one of the two is required.
+        has_bonus = "bonus" in request.data
+        bonus = request.data.get("bonus")
+        if username is None or (correct is None and not has_bonus):
             return Response(
-                {"detail": "username en correct zijn verplicht."},
+                {"detail": "username en correct/bonus zijn verplicht."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -134,9 +156,17 @@ class MarkView(APIView):
 
         from .models import Mark
 
-        Mark.objects.update_or_create(
-            question=question, player=player, defaults={"correct": bool(correct)}
+        # Update only the provided field(s) so marking the bonus doesn't clobber
+        # the main mark (and vice versa). A brand-new row needs a main verdict,
+        # so default it to False until the admin sets it.
+        mark, _ = Mark.objects.get_or_create(
+            question=question, player=player, defaults={"correct": False}
         )
+        if correct is not None:
+            mark.correct = bool(correct)
+        if has_bonus:
+            mark.bonus_correct = None if bonus is None else bool(bonus)
+        mark.save(update_fields=["correct", "bonus_correct"])
         return Response(services.build_state(request.user))
 
 

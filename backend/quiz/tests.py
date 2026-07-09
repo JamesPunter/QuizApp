@@ -16,8 +16,11 @@ from .models import (
     QUIZ_LOSER_MARKET,
     QUIZ_WINNER_MARKET,
     Bet,
+    GameState,
+    Mark,
     Market,
     Player,
+    Question,
     Score,
     ScoreSnapshot,
 )
@@ -126,3 +129,36 @@ class BettingMarketsTest(TestCase):
             Player.objects.get(user=self.users["Niels"]).challenge_status,
             Player.CHALLENGE_PENDING,
         )
+
+
+class BonusScoringTest(TestCase):
+    """A text_bonus question scores 2 (both correct), 1 (main only), or 0."""
+
+    def setUp(self):
+        self.users = {
+            name: User.objects.create(username=name) for name in ("Both", "MainOnly", "Wrong")
+        }
+        for u in self.users.values():
+            Score.objects.create(player=u, points=0)
+        self.question = Question.objects.create(
+            order=1, type=Question.TEXT_BONUS, text="Q", bonus_prompt="Bonus?"
+        )
+        self.game = GameState.get()
+        self.game.current_index = 0
+        self.game.entry_state = GameState.CLOSED
+        self.game.save()
+
+    def _points(self, name):
+        return Score.objects.get(player=self.users[name]).points
+
+    def test_bonus_awards_two_one_or_zero(self):
+        Mark.objects.create(question=self.question, player=self.users["Both"], correct=True, bonus_correct=True)
+        Mark.objects.create(question=self.question, player=self.users["MainOnly"], correct=True, bonus_correct=False)
+        Mark.objects.create(question=self.question, player=self.users["Wrong"], correct=False, bonus_correct=True)
+
+        services.finalize(self.game, self.question)
+
+        self.assertEqual(self._points("Both"), 2)
+        self.assertEqual(self._points("MainOnly"), 1)
+        # A correct bonus never counts when the main answer is wrong.
+        self.assertEqual(self._points("Wrong"), 0)

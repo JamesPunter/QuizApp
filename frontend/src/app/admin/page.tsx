@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   LogOut,
   ShieldCheck,
-  ChevronLeft,
+  ChevronDown,
   ChevronRight,
   Play,
   RotateCcw,
@@ -29,6 +29,7 @@ import {
   adminDeclareChallenge,
   adminFinalize,
   adminMark,
+  adminMarkBonus,
   adminReset,
   adminSettle,
   releaseName,
@@ -85,6 +86,7 @@ export default function AdminPage() {
   const { current_index, entry_state, total_questions, question, answers } = state;
   const isWaiting = current_index === -1;
   const isLast = current_index === total_questions - 1;
+  const isBonus = question?.type === "text_bonus";
   const allMarked = answers.length === 0 || answers.every((a) => a.mark !== null);
 
   return (
@@ -144,24 +146,9 @@ export default function AdminPage() {
         ) : question ? (
           <>
             <div className="w-full max-w-md text-center">
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                <p className="text-sm text-muted-foreground">
-                  Vraag {current_index + 1} van {total_questions}
-                </p>
-                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                  {question.type === "multiple_choice" ? "Meerkeuze" : "Open vraag"}
-                </span>
-                {entry_state === "closed" && (
-                  <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700">
-                    Gesloten
-                  </span>
-                )}
-                {entry_state === "finalized" && (
-                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                    Afgerond
-                  </span>
-                )}
-              </div>
+              <p className="text-sm text-muted-foreground">
+                Vraag {current_index + 1} van {total_questions}
+              </p>
               <h2 className="mt-2 text-xl font-semibold leading-tight">{question.text}</h2>
             </div>
 
@@ -179,51 +166,49 @@ export default function AdminPage() {
                 <p className="text-sm italic text-muted-foreground">Nog geen antwoorden.</p>
               ) : (
                 <div className="flex flex-col gap-1.5">
-                  {answers.map(({ username, answer, mark }) => (
+                  {answers.map(({ username, answer, bonus_answer, mark, bonus_mark }) => (
                     <div
                       key={username}
-                      className="flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm"
+                      className="flex flex-col gap-1.5 rounded-md border bg-card px-3 py-2 text-sm"
                     >
-                      <span className="w-20 shrink-0 truncate font-medium">{username}</span>
-                      <span className="flex-1 truncate text-muted-foreground">
-                        &ldquo;{answer}&rdquo;
-                      </span>
-
-                      {entry_state === "closed" && (
-                        <div className="flex shrink-0 gap-1.5">
-                          <button
-                            onClick={() => run(() => adminMark(username, true))}
-                            aria-label={`${username} goed rekenen`}
-                            className={`flex h-11 w-11 items-center justify-center rounded-lg transition-colors ${
-                              mark === true
-                                ? "bg-green-500 text-white"
-                                : "border text-muted-foreground hover:bg-green-50 active:bg-green-100"
-                            }`}
-                          >
-                            <CheckCircle className="h-5 w-5" />
-                          </button>
-                          <button
-                            onClick={() => run(() => adminMark(username, false))}
-                            aria-label={`${username} fout rekenen`}
-                            className={`flex h-11 w-11 items-center justify-center rounded-lg transition-colors ${
-                              mark === false
-                                ? "bg-red-500 text-white"
-                                : "border text-muted-foreground hover:bg-red-50 active:bg-red-100"
-                            }`}
-                          >
-                            <XCircle className="h-5 w-5" />
-                          </button>
-                        </div>
-                      )}
-
-                      {entry_state === "finalized" && (
-                        <span className="shrink-0">
-                          {mark === true ? (
-                            <CheckCircle className="h-4 w-4 text-green-500" />
-                          ) : (
-                            <XCircle className="h-4 w-4 text-red-500" />
-                          )}
+                      <div className="flex items-center gap-2">
+                        <span className="w-20 shrink-0 truncate font-medium">{username}</span>
+                        <span className="flex-1 truncate text-muted-foreground">
+                          &ldquo;{answer}&rdquo;
                         </span>
+
+                        {entry_state === "closed" && (
+                          <MarkButtons
+                            mark={mark}
+                            onCorrect={() => run(() => adminMark(username, true))}
+                            onWrong={() => run(() => adminMark(username, false))}
+                            correctLabel={`${username} goed rekenen`}
+                            wrongLabel={`${username} fout rekenen`}
+                          />
+                        )}
+                        {entry_state === "finalized" && <MarkIcon mark={mark} />}
+                      </div>
+
+                      {isBonus && (
+                        <div className="flex items-center gap-2 border-t pt-1.5">
+                          <span className="w-20 shrink-0 truncate text-xs text-muted-foreground">
+                            bonus
+                          </span>
+                          <span className="flex-1 truncate text-muted-foreground">
+                            {bonus_answer ? `“${bonus_answer}”` : <em>geen</em>}
+                          </span>
+
+                          {entry_state === "closed" && (
+                            <MarkButtons
+                              mark={bonus_mark}
+                              onCorrect={() => run(() => adminMarkBonus(username, true))}
+                              onWrong={() => run(() => adminMarkBonus(username, false))}
+                              correctLabel={`${username} bonus goed rekenen`}
+                              wrongLabel={`${username} bonus fout rekenen`}
+                            />
+                          )}
+                          {entry_state === "finalized" && <MarkIcon mark={bonus_mark} />}
+                        </div>
                       )}
                     </div>
                   ))}
@@ -280,18 +265,6 @@ export default function AdminPage() {
 
             {entry_state === "finalized" && (
               <div className="flex w-full max-w-md gap-3">
-                {current_index > 0 && (
-                  <Button
-                    variant="outline"
-                    onClick={() => run(() => adminAdvance(current_index - 1))}
-                    disabled={busy}
-                    size="lg"
-                    className="flex-1 gap-1.5"
-                  >
-                    <ChevronLeft className="h-5 w-5" />
-                    Vorige
-                  </Button>
-                )}
                 {isLast ? (
                   <Button
                     variant="outline"
@@ -334,6 +307,61 @@ export default function AdminPage() {
 
       <BottomNav quizHref="/admin" />
     </div>
+  );
+}
+
+// A green/red correct-wrong toggle pair, reused for a question's main answer
+// and (for text_bonus questions) its bonus answer.
+function MarkButtons({
+  mark,
+  onCorrect,
+  onWrong,
+  correctLabel,
+  wrongLabel,
+}: {
+  mark: boolean | null;
+  onCorrect: () => void;
+  onWrong: () => void;
+  correctLabel: string;
+  wrongLabel: string;
+}) {
+  return (
+    <div className="flex shrink-0 gap-1.5">
+      <button
+        onClick={onCorrect}
+        aria-label={correctLabel}
+        className={`flex h-11 w-11 items-center justify-center rounded-lg transition-colors ${
+          mark === true
+            ? "bg-green-500 text-white"
+            : "border text-muted-foreground hover:bg-green-50 active:bg-green-100"
+        }`}
+      >
+        <CheckCircle className="h-5 w-5" />
+      </button>
+      <button
+        onClick={onWrong}
+        aria-label={wrongLabel}
+        className={`flex h-11 w-11 items-center justify-center rounded-lg transition-colors ${
+          mark === false
+            ? "bg-red-500 text-white"
+            : "border text-muted-foreground hover:bg-red-50 active:bg-red-100"
+        }`}
+      >
+        <XCircle className="h-5 w-5" />
+      </button>
+    </div>
+  );
+}
+
+function MarkIcon({ mark }: { mark: boolean | null }) {
+  return (
+    <span className="shrink-0">
+      {mark === true ? (
+        <CheckCircle className="h-4 w-4 text-green-500" />
+      ) : (
+        <XCircle className="h-4 w-4 text-red-500" />
+      )}
+    </span>
   );
 }
 
@@ -404,18 +432,28 @@ function ChallengePanel({
   busy: boolean;
   onDeclare: (username: string, status: ChallengeStatus) => void;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
   if (roster.length === 0) return null;
   return (
-    <div className="w-full max-w-md rounded-xl border bg-card p-4">
-      <div className="mb-1 flex items-center gap-2">
-        <Target className="h-5 w-5 text-primary" />
-        <h3 className="font-semibold">Challenges</h3>
-      </div>
-      <p className="mb-3 text-sm text-muted-foreground">
-        Geef aan of elke speler zijn persoonlijke challenge heeft gehaald. Challenge-inzetten
-        worden automatisch uitbetaald zodra elke keuze is gehaald.
-      </p>
-      <div className="flex flex-col gap-1.5">
+    <div className="w-full max-w-md rounded-xl border bg-card">
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        aria-expanded={!collapsed}
+        className="flex w-full items-center justify-between gap-2 p-4 text-left"
+      >
+        <div className="flex items-center gap-2">
+          <Target className="h-5 w-5 text-primary" />
+          <h3 className="font-semibold">Challenges</h3>
+        </div>
+        <ChevronDown
+          className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform ${
+            collapsed ? "" : "rotate-180"
+          }`}
+        />
+      </button>
+      {!collapsed && (
+      <div className="flex flex-col gap-1.5 px-4 pb-4">
         {roster.map((name) => {
           const status = statuses[name] ?? "pending";
           return (
@@ -454,6 +492,7 @@ function ChallengePanel({
           );
         })}
       </div>
+      )}
     </div>
   );
 }

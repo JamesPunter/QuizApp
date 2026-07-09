@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 240" width="1920" height="240" fill="none" stroke="#6B5D48" stroke-width="2.5" stroke-linecap="square">
+  <rect width="1920" height="240" fill="#EAE3D2"></rect>
+  <defs>
+    <g id="archU" fill="none">
+      <path d="M22 116 V70 A39 39 0 0 1 100 70 V116"></path>
+      <path d="M14 74 H22 M100 74 H108"></path>
+    </g>
+    <g id="archL" fill="none">
+      <path d="M12 240 V176 A48 48 0 0 1 108 176 V240"></path>
+      <path d="M24 240 V180 A36 36 0 0 1 96 180 V240"></path>
+      <path d="M4 184 H24 M96 184 H116"></path>
+    </g>
+  </defs>
+  <line x1="0" y1="16" x2="1920" y2="16"></line>
+  <line x1="0" y1="30" x2="1920" y2="30" stroke-width="1.5"></line>
+  <line x1="0" y1="116" x2="1920" y2="116"></line>
+  <line x1="0" y1="128" x2="1920" y2="128" stroke-width="1.5"></line>
+  <use href="#archU" x="0"></use><use href="#archU" x="120"></use><use href="#archU" x="240"></use><use href="#archU" x="360"></use><use href="#archU" x="480"></use><use href="#archU" x="600"></use><use href="#archU" x="720"></use><use href="#archU" x="840"></use><use href="#archU" x="960"></use><use href="#archU" x="1080"></use><use href="#archU" x="1200"></use><use href="#archU" x="1320"></use><use href="#archU" x="1440"></use><use href="#archU" x="1560"></use><use href="#archU" x="1680"></use><use href="#archU" x="1800"></use>
+  <use href="#archL" x="0"></use><use href="#archL" x="120"></use><use href="#archL" x="240"></use><use href="#archL" x="360"></use><use href="#archL" x="480"></use><use href="#archL" x="600"></use><use href="#archL" x="720"></use><use href="#archL" x="840"></use><use href="#archL" x="960"></use><use href="#archL" x="1080"></use><use href="#archL" x="1200"></use><use href="#archL" x="1320"></use><use href="#archL" x="1440"></use><use href="#archL" x="1560"></use><use href="#archL" x="1680"></use><use href="#archL" x="1800"></use>
+</svg>

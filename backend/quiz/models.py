@@ -38,6 +38,22 @@ CHALLENGE_MARKET = "challenge"
 # so total decimal odds = CHALLENGE_ODDS_FACTOR ** (number of players picked).
 CHALLENGE_ODDS_FACTOR = 1.8
 
+# --- Minigames: slot machine -------------------------------------------------
+# The slot has 3 reels. A spin wins only when all 3 reels land on the same
+# symbol; the matched symbol decides the reward. The two coin symbols pay the
+# stake back multiplied; the two drink symbols are physical rewards (no coins).
+SLOT_COSTS = (50, 100, 200)
+SLOT_2X = "coin2x"
+SLOT_3X = "coin3x"
+SLOT_SHOT = "shot"
+SLOT_SIP = "sip"
+SLOT_SYMBOLS = [SLOT_2X, SLOT_3X, SLOT_SHOT, SLOT_SIP]
+# Coin multiplier applied to the stake for a matching coin symbol (0 = no coins).
+SLOT_MULTIPLIERS = {SLOT_2X: 2, SLOT_3X: 3, SLOT_SHOT: 0, SLOT_SIP: 0}
+# Chance a spin is a win. Honest independent reels would only match ~1/16 of the
+# time; we bias the roll so roughly half of spins land a prize.
+SLOT_WIN_PROBABILITY = 0.5
+
 
 def is_admin_username(username: str) -> bool:
     return (username or "").lower() in ADMIN_USERNAMES
@@ -52,7 +68,15 @@ def resolve_contestant(name: str):
 class Question(models.Model):
     TEXT = "text"
     MULTIPLE_CHOICE = "multiple_choice"
-    TYPE_CHOICES = [(TEXT, "Text"), (MULTIPLE_CHOICE, "Multiple choice")]
+    # A text question with an extra "bonus" answer field. Scores 2 points when
+    # both the main answer and the bonus are correct, 1 point when only the main
+    # answer is correct, and 0 otherwise (see services.finalize).
+    TEXT_BONUS = "text_bonus"
+    TYPE_CHOICES = [
+        (TEXT, "Text"),
+        (MULTIPLE_CHOICE, "Multiple choice"),
+        (TEXT_BONUS, "Text with bonus"),
+    ]
 
     # 1-based display order; the game's current_index is a 0-based position
     # into the ordered question list.
@@ -60,6 +84,8 @@ class Question(models.Model):
     text = models.TextField()
     type = models.CharField(max_length=20, choices=TYPE_CHOICES)
     options = models.JSONField(default=list, blank=True)  # only for multiple_choice
+    # Prompt shown above the second input, only for text_bonus questions.
+    bonus_prompt = models.CharField(max_length=300, blank=True, default="")
 
     class Meta:
         ordering = ["order"]
@@ -93,6 +119,8 @@ class Answer(models.Model):
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="answers")
     player = models.ForeignKey(User, on_delete=models.CASCADE, related_name="answers")
     text = models.CharField(max_length=500)
+    # Second answer for text_bonus questions; blank for all other types.
+    bonus_text = models.CharField(max_length=500, blank=True, default="")
     submitted_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -103,6 +131,9 @@ class Mark(models.Model):
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="marks")
     player = models.ForeignKey(User, on_delete=models.CASCADE, related_name="marks")
     correct = models.BooleanField()
+    # Admin verdict on the bonus answer (text_bonus only). None = not judged / N/A;
+    # the bonus point counts only when `correct` is also True.
+    bonus_correct = models.BooleanField(null=True, blank=True, default=None)
 
     class Meta:
         unique_together = ("question", "player")

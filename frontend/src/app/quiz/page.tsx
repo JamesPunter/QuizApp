@@ -16,6 +16,7 @@ export default function QuizPage() {
   const router = useRouter();
   const { state, setState } = useGameState();
   const [textAnswer, setTextAnswer] = useState("");
+  const [bonusAnswer, setBonusAnswer] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   // Admins run the quiz from /admin.
@@ -27,6 +28,7 @@ export default function QuizPage() {
   const questionId = state?.question?.id ?? null;
   useEffect(() => {
     setTextAnswer("");
+    setBonusAnswer("");
     setError(null);
   }, [questionId]);
 
@@ -38,10 +40,10 @@ export default function QuizPage() {
     });
   }
 
-  async function submit(answer: string) {
+  async function submit(answer: string, bonus?: string) {
     setError(null);
     try {
-      const fresh = await submitAnswer(answer);
+      const fresh = await submitAnswer(answer, bonus);
       setState(fresh); // instant "submitted" without waiting for the next poll
     } catch (e) {
       setError(e instanceof Error ? e.message : "Kon niet indienen.");
@@ -54,6 +56,9 @@ export default function QuizPage() {
   const username = state.you.username;
   const myAnswer = state.you.my_answer;
   const myMark = state.you.my_mark;
+  const myBonusMark = state.you.my_bonus_mark;
+  // Bonus questions score 2 (main + bonus correct) or 1 (main only); others 1.
+  const pointsWon = myMark ? (myBonusMark ? 2 : 1) : 0;
 
   // Full-screen result once the admin finalizes.
   if (entry_state === "finalized" && current_index >= 0) {
@@ -81,7 +86,12 @@ export default function QuizPage() {
             <>
               <CheckCircle className="h-24 w-24" />
               <h1 className="text-5xl font-bold">Goed!</h1>
-              <p className="text-xl opacity-90">+1 punt</p>
+              <p className="text-xl opacity-90">
+                +{pointsWon} {pointsWon === 1 ? "punt" : "punten"}
+              </p>
+              {myBonusMark === false && (
+                <p className="text-base opacity-80">Bonus niet goed</p>
+              )}
             </>
           ) : (
             <>
@@ -132,11 +142,17 @@ export default function QuizPage() {
             question={question}
             total={state.total_questions}
             textAnswer={textAnswer}
+            bonusAnswer={bonusAnswer}
             error={error}
             onTextChange={setTextAnswer}
+            onBonusChange={setBonusAnswer}
             onSubmitText={(e) => {
               e.preventDefault();
-              if (textAnswer.trim()) submit(textAnswer.trim());
+              if (textAnswer.trim())
+                submit(
+                  textAnswer.trim(),
+                  question.type === "text_bonus" ? bonusAnswer.trim() : undefined
+                );
             }}
             onSelectOption={(option) => submit(option)}
           />
@@ -152,16 +168,20 @@ function QuestionView({
   question,
   total,
   textAnswer,
+  bonusAnswer,
   error,
   onTextChange,
+  onBonusChange,
   onSubmitText,
   onSelectOption,
 }: {
   question: CurrentQuestion;
   total: number;
   textAnswer: string;
+  bonusAnswer: string;
   error: string | null;
   onTextChange: (v: string) => void;
+  onBonusChange: (v: string) => void;
   onSubmitText: (e: React.FormEvent) => void;
   onSelectOption: (option: string) => void;
 }) {
@@ -198,6 +218,19 @@ function QuestionView({
             autoComplete="off"
             autoFocus
           />
+          {question.type === "text_bonus" && (
+            <div className="flex flex-col gap-1.5">
+              <p className="text-sm font-medium text-muted-foreground">
+                {question.bonus_prompt || "Bonusvraag"}
+              </p>
+              <Input
+                placeholder="Bonusantwoord…"
+                value={bonusAnswer}
+                onChange={(e) => onBonusChange(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+          )}
           <Button type="submit" size="lg" className="w-full" disabled={!textAnswer.trim()}>
             Indienen
           </Button>

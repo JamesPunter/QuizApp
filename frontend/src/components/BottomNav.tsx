@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Brain, Coins, Trophy } from "lucide-react";
+import { Brain, Coins, Gamepad2, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function BottomNav({ quizHref = "/quiz" }: { quizHref?: string }) {
@@ -10,6 +10,7 @@ export default function BottomNav({ quizHref = "/quiz" }: { quizHref?: string })
   const navItems = [
     { href: quizHref, icon: Brain, label: "Quiz" },
     { href: "/betje", icon: Coins, label: "Betje" },
+    { href: "/minigames", icon: Gamepad2, label: "Minigames" },
     { href: "/tussenstand", icon: Trophy, label: "Tussenstand" },
   ];
 

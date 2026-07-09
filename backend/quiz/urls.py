@@ -7,6 +7,7 @@ urlpatterns = [
     path("game/state/", views.GameStateView.as_view(), name="game-state"),
     path("game/answer/", views.SubmitAnswerView.as_view(), name="game-answer"),
     path("bets/", views.PlaceBetView.as_view(), name="place-bet"),
+    path("minigames/slot/", views.SlotSpinView.as_view(), name="minigame-slot"),
     # Admin-facing (finn / james only)
     path("admin/advance/", views.AdvanceView.as_view(), name="admin-advance"),
     path("admin/close/", views.CloseEntryView.as_view(), name="admin-close"),
