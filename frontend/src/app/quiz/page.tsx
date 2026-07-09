@@ -4,142 +4,89 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut, Clock, Timer, Lock, CheckCircle, XCircle } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
+import UsernameBadge from "@/components/UsernameBadge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  MOCK_QUESTIONS,
-  getQuizIndex,
-  getQuizEntryState,
-  getQuizAnswers,
-  addQuizAnswer,
-  getPlayerMark,
-  isAdmin,
-  QUIZ_INDEX_KEY,
-  QUIZ_ENTRY_STATE_KEY,
-} from "@/lib/quizState";
-import type { Question, EntryState } from "@/lib/quizState";
-import { registerPlayer } from "@/lib/bettingState";
+import { useGameState } from "@/lib/useGameState";
+import { releaseName, submitAnswer, type CurrentQuestion } from "@/lib/api";
 
 const LETTERS = ["A", "B", "C", "D"];
 
 export default function QuizPage() {
   const router = useRouter();
-  const [username, setUsername] = useState<string | null>(null);
-  const [questionIndex, setQuestionIndex] = useState(-1);
-  const [entryState, setEntryState] = useState<EntryState>("open");
+  const { state, setState } = useGameState();
   const [textAnswer, setTextAnswer] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const [myMark, setMyMark] = useState<boolean | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
+  // Admins run the quiz from /admin.
   useEffect(() => {
-    const stored = sessionStorage.getItem("username");
-    if (!stored) {
-      router.replace("/login");
-      return;
-    }
-    if (isAdmin(stored)) {
-      router.replace("/admin");
-      return;
-    }
-    // Register in the betting roster so the player shows up in the betting
-    // lists as soon as they join, without needing to open the Betje page.
-    registerPlayer(stored);
-    setUsername(stored);
+    if (state?.you.is_admin) router.replace("/admin");
+  }, [state?.you.is_admin, router]);
 
-    const idx = getQuizIndex();
-    setQuestionIndex(idx);
-
-    if (idx >= 0) {
-      const state = getQuizEntryState();
-      setEntryState(state);
-      if (getQuizAnswers(idx).some((a) => a.username === stored)) {
-        setSubmitted(true);
-      }
-      if (state === "finalized") {
-        setMyMark(getPlayerMark(idx, stored));
-      }
-    }
-
-    // React to admin actions in the other tab.
-    // Replace with WebSocket events once the backend is ready.
-    function onStorage(e: StorageEvent) {
-      if (e.key === QUIZ_INDEX_KEY) {
-        const newIdx = e.newValue !== null ? parseInt(e.newValue, 10) : -1;
-        setQuestionIndex(newIdx);
-        setTextAnswer("");
-        setSubmitted(false);
-        setMyMark(null);
-        setEntryState("open");
-      }
-      if (e.key === QUIZ_ENTRY_STATE_KEY) {
-        const newState = (e.newValue as EntryState | null) ?? "open";
-        setEntryState(newState);
-        if (newState === "finalized") {
-          const curIdx = getQuizIndex();
-          const storedUser = sessionStorage.getItem("username");
-          if (curIdx >= 0 && storedUser) {
-            setMyMark(getPlayerMark(curIdx, storedUser));
-          }
-        }
-      }
-    }
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, [router]);
+  // Clear the draft when the question changes.
+  const questionId = state?.question?.id ?? null;
+  useEffect(() => {
+    setTextAnswer("");
+    setError(null);
+  }, [questionId]);
 
   function handleLogout() {
-    sessionStorage.removeItem("token");
-    sessionStorage.removeItem("username");
-    router.push("/login");
+    releaseName().finally(() => {
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("username");
+      router.push("/login");
+    });
   }
 
-  function handleSubmitText(e: React.FormEvent) {
-    e.preventDefault();
-    if (!textAnswer.trim() || !username || questionIndex < 0) return;
-    addQuizAnswer(questionIndex, { username, answer: textAnswer.trim() });
-    setSubmitted(true);
-    // TODO: also send to backend
+  async function submit(answer: string) {
+    setError(null);
+    try {
+      const fresh = await submitAnswer(answer);
+      setState(fresh); // instant "submitted" without waiting for the next poll
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Kon niet indienen.");
+    }
   }
 
-  function handleSelectOption(option: string) {
-    if (!username || questionIndex < 0) return;
-    addQuizAnswer(questionIndex, { username, answer: option });
-    setSubmitted(true);
-    // TODO: also send to backend
-  }
+  if (!state) return null;
 
-  if (!username) return null;
+  const { current_index, entry_state, question } = state;
+  const username = state.you.username;
+  const myAnswer = state.you.my_answer;
+  const myMark = state.you.my_mark;
 
-  // Full-screen result after admin finalizes.
-  if (entryState === "finalized" && questionIndex >= 0) {
-    if (myMark === null) {
+  // Full-screen result once the admin finalizes.
+  if (entry_state === "finalized" && current_index >= 0) {
+    if (myAnswer === null) {
       return (
         <div className="flex min-h-screen flex-col bg-background pb-20">
+          <header className="flex items-center px-2 py-2">
+            <UsernameBadge username={username} />
+          </header>
           <main className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-muted-foreground">
             <XCircle className="h-16 w-16" />
-            <p className="text-xl font-medium">No answer submitted</p>
+            <p className="text-xl font-medium">Geen antwoord ingediend</p>
           </main>
           <BottomNav />
         </div>
       );
     }
     return (
-      <div
-        className={`flex min-h-screen flex-col pb-20 ${
-          myMark ? "bg-green-500" : "bg-red-500"
-        }`}
-      >
+      <div className={`flex min-h-screen flex-col pb-20 ${myMark ? "bg-green-500" : "bg-red-500"}`}>
+        <header className="flex items-center px-2 py-2">
+          <UsernameBadge username={username} className="text-white/90" />
+        </header>
         <main className="flex flex-1 flex-col items-center justify-center gap-4 text-white">
           {myMark ? (
             <>
               <CheckCircle className="h-24 w-24" />
-              <h1 className="text-5xl font-bold">Correct!</h1>
-              <p className="text-xl opacity-90">+1 point</p>
+              <h1 className="text-5xl font-bold">Goed!</h1>
+              <p className="text-xl opacity-90">+1 punt</p>
             </>
           ) : (
             <>
               <XCircle className="h-24 w-24" />
-              <h1 className="text-5xl font-bold">Incorrect</h1>
+              <h1 className="text-5xl font-bold">Fout</h1>
             </>
           )}
         </main>
@@ -148,15 +95,13 @@ export default function QuizPage() {
     );
   }
 
-  const question: Question | undefined =
-    questionIndex >= 0 ? MOCK_QUESTIONS[questionIndex] : undefined;
-
   return (
     <div className="flex min-h-screen flex-col bg-background pb-20">
-      <header className="flex items-center justify-end px-2 py-2">
+      <header className="flex items-center justify-between px-2 py-2">
+        <UsernameBadge username={username} />
         <button
           onClick={handleLogout}
-          aria-label="Logout"
+          aria-label="Uitloggen"
           className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground active:bg-muted"
         >
           <LogOut className="h-6 w-6" />
@@ -164,36 +109,36 @@ export default function QuizPage() {
       </header>
 
       <main className="flex flex-1 flex-col items-center justify-center p-8">
-        {questionIndex === -1 ? (
-          // Waiting for first question
+        {current_index === -1 ? (
           <div className="flex flex-col items-center gap-3 text-center">
             <Clock className="h-12 w-12 text-muted-foreground" />
-            <p className="text-lg font-medium">Waiting for the next question…</p>
+            <p className="text-lg font-medium">Wachten op de volgende vraag…</p>
           </div>
-        ) : submitted ? (
-          // Answer in — waiting for admin to close & finalize
+        ) : myAnswer !== null ? (
           <div className="flex flex-col items-center gap-3 text-center">
             <Timer className="h-12 w-12 text-muted-foreground" />
-            <p className="text-lg font-medium">Answer submitted!</p>
-            <p className="text-sm text-muted-foreground">Waiting for results…</p>
+            <p className="text-lg font-medium">Antwoord ingediend!</p>
+            <p className="text-sm text-muted-foreground">Jouw antwoord: “{myAnswer}”</p>
+            <p className="text-sm text-muted-foreground">Wachten op de uitslag…</p>
           </div>
-        ) : entryState === "closed" ? (
-          // Entry closed before this player submitted
+        ) : entry_state === "closed" ? (
           <div className="flex flex-col items-center gap-3 text-center">
             <Lock className="h-12 w-12 text-muted-foreground" />
-            <p className="text-lg font-medium">Entry is closed.</p>
-            <p className="text-sm text-muted-foreground">Waiting for results…</p>
+            <p className="text-lg font-medium">Inzenden is gesloten.</p>
+            <p className="text-sm text-muted-foreground">Wachten op de uitslag…</p>
           </div>
         ) : question ? (
-          // Active question — show input
           <QuestionView
             question={question}
-            index={questionIndex}
-            total={MOCK_QUESTIONS.length}
+            total={state.total_questions}
             textAnswer={textAnswer}
+            error={error}
             onTextChange={setTextAnswer}
-            onSubmitText={handleSubmitText}
-            onSelectOption={handleSelectOption}
+            onSubmitText={(e) => {
+              e.preventDefault();
+              if (textAnswer.trim()) submit(textAnswer.trim());
+            }}
+            onSelectOption={(option) => submit(option)}
           />
         ) : null}
       </main>
@@ -205,17 +150,17 @@ export default function QuizPage() {
 
 function QuestionView({
   question,
-  index,
   total,
   textAnswer,
+  error,
   onTextChange,
   onSubmitText,
   onSelectOption,
 }: {
-  question: Question;
-  index: number;
+  question: CurrentQuestion;
   total: number;
   textAnswer: string;
+  error: string | null;
   onTextChange: (v: string) => void;
   onSubmitText: (e: React.FormEvent) => void;
   onSelectOption: (option: string) => void;
@@ -224,14 +169,12 @@ function QuestionView({
     <div className="flex w-full max-w-md flex-col gap-6">
       <div className="text-center">
         <p className="text-sm text-muted-foreground">
-          Question {index + 1} of {total}
+          Vraag {question.index + 1} van {total}
         </p>
-        <h2 className="mt-2 text-2xl font-semibold leading-tight">
-          {question.text}
-        </h2>
+        <h2 className="mt-2 text-2xl font-semibold leading-tight">{question.text}</h2>
       </div>
 
-      {question.type === "multiple_choice" && question.options ? (
+      {question.type === "multiple_choice" && question.options.length > 0 ? (
         <div className="flex flex-col gap-3">
           {question.options.map((option, i) => (
             <button
@@ -249,17 +192,19 @@ function QuestionView({
       ) : (
         <form onSubmit={onSubmitText} className="flex flex-col gap-3">
           <Input
-            placeholder="Type your answer…"
+            placeholder="Typ je antwoord…"
             value={textAnswer}
             onChange={(e) => onTextChange(e.target.value)}
             autoComplete="off"
             autoFocus
           />
           <Button type="submit" size="lg" className="w-full" disabled={!textAnswer.trim()}>
-            Submit
+            Indienen
           </Button>
         </form>
       )}
+
+      {error && <p className="text-center text-sm text-red-500">{error}</p>}
     </div>
   );
 }

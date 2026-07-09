@@ -14,165 +14,103 @@ import {
   XCircle,
   Users,
   Coins,
+  Trophy,
+  TrendingDown,
+  Target,
 } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { Button } from "@/components/ui/button";
-import {
-  MOCK_QUESTIONS,
-  getQuizIndex,
-  setQuizIndex,
-  getQuizEntryState,
-  setQuizEntryState,
-  getQuizAnswers,
-  getQuizMarks,
-  setQuizMarks,
-  addQuizScores,
-  resetQuiz,
-  isAdmin,
-  QUIZ_ANSWERS_KEY,
-} from "@/lib/quizState";
-import type { EntryState, PlayerAnswer, PlayerMark } from "@/lib/quizState";
+import { useGameState } from "@/lib/useGameState";
 import {
   QUIZ_WINNER_MARKET,
-  resetBettingGame,
-  settleQuizWinnerMarket,
-  isMarketSettled,
-} from "@/lib/bettingState";
-import type { SettlementResult } from "@/lib/bettingState";
+  QUIZ_LOSER_MARKET,
+  adminAdvance,
+  adminClose,
+  adminDeclareChallenge,
+  adminFinalize,
+  adminMark,
+  adminReset,
+  adminSettle,
+  releaseName,
+  type ChallengeStatus,
+  type GameState,
+  type Market,
+  type Settlement,
+} from "@/lib/api";
 
 export default function AdminPage() {
   const router = useRouter();
-  const [username, setUsername] = useState<string | null>(null);
-  const [questionIndex, setQuestionIndex] = useState(-1);
-  const [entryState, setEntryState] = useState<EntryState>("open");
-  const [answers, setAnswers] = useState<PlayerAnswer[]>([]);
-  const [marks, setMarks] = useState<Record<string, boolean>>({});
-  const [betsSettled, setBetsSettled] = useState(false);
-  const [settlement, setSettlement] = useState<SettlementResult | null>(null);
+  const { state, setState } = useGameState();
+  // Settlement summary per market key, shown after paying that market out.
+  const [settlements, setSettlements] = useState<Record<string, Settlement | null>>({});
+  const [busy, setBusy] = useState(false);
 
+  // Non-admins don't belong here.
   useEffect(() => {
-    const stored = sessionStorage.getItem("username");
-    if (!stored) {
-      router.replace("/login");
-      return;
-    }
-    if (!isAdmin(stored)) {
-      router.replace("/quiz");
-      return;
-    }
-    setUsername(stored);
-    setBetsSettled(isMarketSettled(QUIZ_WINNER_MARKET));
-    const idx = getQuizIndex();
-    setQuestionIndex(idx);
-    if (idx >= 0) {
-      const state = getQuizEntryState();
-      setEntryState(state);
-      setAnswers(getQuizAnswers(idx));
-      const saved = getQuizMarks(idx);
-      setMarks(Object.fromEntries(saved.map((m) => [m.username, m.correct])));
-    }
-  }, [router]);
+    if (state && !state.you.is_admin) router.replace("/quiz");
+  }, [state, router]);
 
-  // Reload answers whenever a player submits in another tab.
-  useEffect(() => {
-    if (questionIndex < 0) return;
-    function onStorage(e: StorageEvent) {
-      if (e.key === QUIZ_ANSWERS_KEY) {
-        setAnswers(getQuizAnswers(questionIndex));
-      }
+  async function run(action: () => Promise<GameState>) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      setState(await action());
+    } finally {
+      setBusy(false);
     }
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, [questionIndex]);
-
-  function navigate(newIndex: number) {
-    if (newIndex === -1) {
-      // Restarting the quiz also wipes the betting game: budgets, placed bets
-      // and settlement all reset so the next quiz starts clean.
-      resetQuiz();
-      resetBettingGame();
-      setBetsSettled(false);
-      setSettlement(null);
-    } else {
-      setQuizIndex(newIndex);
-      setQuizEntryState("open");
-    }
-    setQuestionIndex(newIndex);
-    setEntryState("open");
-    setAnswers([]);
-    setMarks({});
   }
 
-  // End-of-quiz payout for "Wie wint de quiz?". Uses the final scores to
-  // determine the winner(s) and credits winning bettors. Idempotent.
-  function handleSettleBets() {
-    const result = settleQuizWinnerMarket();
-    if (result) setSettlement(result);
-    setBetsSettled(true);
-  }
-
-  function handleCloseEntry() {
-    setQuizEntryState("closed");
-    setEntryState("closed");
-  }
-
-  function toggleMark(user: string, correct: boolean) {
-    const newMarks = { ...marks, [user]: correct };
-    setMarks(newMarks);
-    const arr: PlayerMark[] = Object.entries(newMarks).map(([u, c]) => ({
-      username: u,
-      correct: c,
-    }));
-    setQuizMarks(questionIndex, arr);
-  }
-
-  function handleFinalize() {
-    const arr: PlayerMark[] = Object.entries(marks).map(([u, c]) => ({
-      username: u,
-      correct: c,
-    }));
-    // Write marks before changing entry state so players read fresh data.
-    setQuizMarks(questionIndex, arr);
-    addQuizScores(arr);
-    setQuizEntryState("finalized");
-    setEntryState("finalized");
+  async function handleSettle(key: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const fresh = await adminSettle(key);
+      setState(fresh);
+      if (fresh.settlement) setSettlements((prev) => ({ ...prev, [key]: fresh.settlement! }));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function handleLogout() {
-    sessionStorage.removeItem("token");
-    sessionStorage.removeItem("username");
-    router.push("/login");
+    releaseName().finally(() => {
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("username");
+      router.push("/login");
+    });
   }
 
-  if (!username) return null;
+  if (!state || !state.you.is_admin) return null;
 
-  const question = questionIndex >= 0 ? MOCK_QUESTIONS[questionIndex] : null;
-  const isWaiting = questionIndex === -1;
-  const isLast = questionIndex === MOCK_QUESTIONS.length - 1;
-  const allMarked =
-    answers.length === 0 || answers.every((a) => a.username in marks);
+  const { current_index, entry_state, total_questions, question, answers } = state;
+  const isWaiting = current_index === -1;
+  const isLast = current_index === total_questions - 1;
+  const allMarked = answers.length === 0 || answers.every((a) => a.mark !== null);
 
   return (
     <div className="flex min-h-screen flex-col bg-background pb-20">
       <header className="flex items-center justify-between px-2 py-2">
         <div className="flex items-center gap-1.5 px-2 text-sm font-medium text-primary">
           <ShieldCheck className="h-4 w-4" />
-          Admin
+          <span className="max-w-[10rem] truncate">{state.you.username}</span>
         </div>
         <div className="flex items-center gap-1">
           {!isWaiting && (
             <button
-              onClick={() => navigate(-1)}
-              aria-label="Restart quiz"
+              onClick={() => {
+                setSettlements({});
+                run(adminReset);
+              }}
+              aria-label="Quiz herstarten"
               className="flex h-11 items-center gap-1.5 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:text-foreground active:bg-muted"
             >
               <RotateCcw className="h-5 w-5" />
-              Restart
+              Herstarten
             </button>
           )}
           <button
             onClick={handleLogout}
-            aria-label="Logout"
+            aria-label="Uitloggen"
             className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground active:bg-muted"
           >
             <LogOut className="h-6 w-6" />
@@ -180,84 +118,84 @@ export default function AdminPage() {
         </div>
       </header>
 
+      <div className="flex w-full justify-center px-6 pt-2">
+        <PresencePanel players={state.players} present={state.present} />
+      </div>
+
       <main className="flex flex-1 flex-col items-center justify-center gap-5 p-6">
         {isWaiting ? (
           <>
             <div className="text-center">
-              <p className="text-lg font-medium">Ready to start</p>
+              <p className="text-lg font-medium">Klaar om te starten</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Players are waiting. Press Start to show the first question.
+                De spelers wachten. Druk op Start om de eerste vraag te tonen.
               </p>
             </div>
-            <Button onClick={() => navigate(0)} size="lg" className="w-full max-w-md gap-1.5">
+            <Button
+              onClick={() => run(() => adminAdvance(0))}
+              disabled={busy || total_questions === 0}
+              size="lg"
+              className="w-full max-w-md gap-1.5"
+            >
               <Play className="h-5 w-5" />
-              Start Quiz
+              Quiz starten
             </Button>
           </>
         ) : question ? (
           <>
-            {/* Question header */}
             <div className="w-full max-w-md text-center">
               <div className="flex flex-wrap items-center justify-center gap-2">
                 <p className="text-sm text-muted-foreground">
-                  Question {questionIndex + 1} of {MOCK_QUESTIONS.length}
+                  Vraag {current_index + 1} van {total_questions}
                 </p>
                 <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                  {question.type === "multiple_choice" ? "Multiple choice" : "Text"}
+                  {question.type === "multiple_choice" ? "Meerkeuze" : "Open vraag"}
                 </span>
-                {entryState === "closed" && (
+                {entry_state === "closed" && (
                   <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700">
-                    Closed
+                    Gesloten
                   </span>
                 )}
-                {entryState === "finalized" && (
+                {entry_state === "finalized" && (
                   <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                    Finalized
+                    Afgerond
                   </span>
                 )}
               </div>
-              <h2 className="mt-2 text-xl font-semibold leading-tight">
-                {question.text}
-              </h2>
+              <h2 className="mt-2 text-xl font-semibold leading-tight">{question.text}</h2>
             </div>
 
-            {/* Answers list */}
             <div className="w-full max-w-md">
               <div className="mb-2 flex items-center gap-1.5 text-sm font-medium">
                 <Users className="h-4 w-4 text-muted-foreground" />
-                {entryState === "open"
-                  ? `Live Answers (${answers.length})`
-                  : entryState === "closed"
-                  ? `Mark Answers (${answers.length})`
-                  : `Results (${answers.length})`}
+                {entry_state === "open"
+                  ? `Live antwoorden (${answers.length})`
+                  : entry_state === "closed"
+                  ? `Antwoorden nakijken (${answers.length})`
+                  : `Uitslag (${answers.length})`}
               </div>
 
               {answers.length === 0 ? (
-                <p className="text-sm italic text-muted-foreground">
-                  No answers yet.
-                </p>
+                <p className="text-sm italic text-muted-foreground">Nog geen antwoorden.</p>
               ) : (
                 <div className="flex flex-col gap-1.5">
-                  {answers.map(({ username: u, answer }) => (
+                  {answers.map(({ username, answer, mark }) => (
                     <div
-                      key={u}
+                      key={username}
                       className="flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm"
                     >
-                      <span className="w-20 shrink-0 truncate font-medium">
-                        {u}
-                      </span>
+                      <span className="w-20 shrink-0 truncate font-medium">{username}</span>
                       <span className="flex-1 truncate text-muted-foreground">
                         &ldquo;{answer}&rdquo;
                       </span>
 
-                      {/* Mark buttons (closed state) */}
-                      {entryState === "closed" && (
+                      {entry_state === "closed" && (
                         <div className="flex shrink-0 gap-1.5">
                           <button
-                            onClick={() => toggleMark(u, true)}
-                            aria-label={`Mark ${u} correct`}
+                            onClick={() => run(() => adminMark(username, true))}
+                            aria-label={`${username} goed rekenen`}
                             className={`flex h-11 w-11 items-center justify-center rounded-lg transition-colors ${
-                              marks[u] === true
+                              mark === true
                                 ? "bg-green-500 text-white"
                                 : "border text-muted-foreground hover:bg-green-50 active:bg-green-100"
                             }`}
@@ -265,10 +203,10 @@ export default function AdminPage() {
                             <CheckCircle className="h-5 w-5" />
                           </button>
                           <button
-                            onClick={() => toggleMark(u, false)}
-                            aria-label={`Mark ${u} incorrect`}
+                            onClick={() => run(() => adminMark(username, false))}
+                            aria-label={`${username} fout rekenen`}
                             className={`flex h-11 w-11 items-center justify-center rounded-lg transition-colors ${
-                              marks[u] === false
+                              mark === false
                                 ? "bg-red-500 text-white"
                                 : "border text-muted-foreground hover:bg-red-50 active:bg-red-100"
                             }`}
@@ -278,10 +216,9 @@ export default function AdminPage() {
                         </div>
                       )}
 
-                      {/* Result icon (finalized state) */}
-                      {entryState === "finalized" && (
+                      {entry_state === "finalized" && (
                         <span className="shrink-0">
-                          {marks[u] === true ? (
+                          {mark === true ? (
                             <CheckCircle className="h-4 w-4 text-green-500" />
                           ) : (
                             <XCircle className="h-4 w-4 text-red-500" />
@@ -294,107 +231,89 @@ export default function AdminPage() {
               )}
             </div>
 
-            {/* Action buttons */}
-            {entryState === "open" && (
+            {entry_state === "open" && (
               <Button
                 variant="outline"
-                onClick={handleCloseEntry}
+                onClick={() => run(adminClose)}
+                disabled={busy}
                 size="lg"
                 className="w-full max-w-md gap-1.5"
               >
                 <Lock className="h-5 w-5" />
-                Close Entry
+                Inzenden sluiten
               </Button>
             )}
 
-            {entryState === "closed" && (
+            {entry_state === "closed" && (
               <Button
-                onClick={handleFinalize}
-                disabled={!allMarked}
+                onClick={() => run(adminFinalize)}
+                disabled={!allMarked || busy}
                 size="lg"
                 className="w-full max-w-md"
               >
-                Finalize Results
+                Uitslag afronden
               </Button>
             )}
 
-            {/* End-of-quiz betting payout, shown once the final question is finalized. */}
-            {entryState === "finalized" && isLast && (
-              <div className="w-full max-w-md rounded-xl border bg-card p-4">
-                <div className="mb-1 flex items-center gap-2">
-                  <Coins className="h-5 w-5 text-amber-600" />
-                  <h3 className="font-semibold">Wie wint de quiz?</h3>
-                </div>
-                {betsSettled ? (
-                  <div className="text-sm text-muted-foreground">
-                    {settlement ? (
-                      <p>
-                        Paid out{" "}
-                        <span className="font-semibold text-foreground">
-                          {settlement.paidOut}
-                        </span>{" "}
-                        coins.{" "}
-                        {settlement.winners.length > 0
-                          ? `Winner${
-                              settlement.winners.length > 1 ? "s" : ""
-                            }: ${settlement.winners.join(", ")}.`
-                          : "No winner (no scores)."}{" "}
-                        {settlement.wonCount} winning / {settlement.lostCount}{" "}
-                        losing bet(s).
-                      </p>
-                    ) : (
-                      <p>Bets have been settled.</p>
-                    )}
-                  </div>
-                ) : (
-                  <>
-                    <p className="mb-3 text-sm text-muted-foreground">
-                      Pay out the winner bets using the current standings before
-                      resetting the quiz.
-                    </p>
-                    <Button
-                      onClick={handleSettleBets}
-                      size="lg"
-                      className="w-full gap-1.5"
-                    >
-                      <Coins className="h-5 w-5" />
-                      Pay Out Bets
-                    </Button>
-                  </>
-                )}
+            {entry_state === "finalized" && isLast && (
+              <div className="flex w-full max-w-md flex-col gap-3">
+                <PayoutMarket
+                  market={state.markets.find((m) => m.key === QUIZ_WINNER_MARKET)}
+                  marketKey={QUIZ_WINNER_MARKET}
+                  title="Wie wint de quiz?"
+                  standingLabel="de huidige stand"
+                  settlement={settlements[QUIZ_WINNER_MARKET] ?? null}
+                  busy={busy}
+                  onSettle={() => handleSettle(QUIZ_WINNER_MARKET)}
+                />
+                <PayoutMarket
+                  market={state.markets.find((m) => m.key === QUIZ_LOSER_MARKET)}
+                  marketKey={QUIZ_LOSER_MARKET}
+                  title="Wie wordt laatste?"
+                  standingLabel="de laatste plaats"
+                  settlement={settlements[QUIZ_LOSER_MARKET] ?? null}
+                  busy={busy}
+                  onSettle={() => handleSettle(QUIZ_LOSER_MARKET)}
+                />
               </div>
             )}
 
-            {entryState === "finalized" && (
+            {entry_state === "finalized" && (
               <div className="flex w-full max-w-md gap-3">
-                {questionIndex > 0 && (
+                {current_index > 0 && (
                   <Button
                     variant="outline"
-                    onClick={() => navigate(questionIndex - 1)}
+                    onClick={() => run(() => adminAdvance(current_index - 1))}
+                    disabled={busy}
                     size="lg"
                     className="flex-1 gap-1.5"
                   >
                     <ChevronLeft className="h-5 w-5" />
-                    Previous
+                    Vorige
                   </Button>
                 )}
                 {isLast ? (
                   <Button
                     variant="outline"
-                    onClick={() => navigate(-1)}
+                    onClick={() => {
+                      setSettlements({});
+                      run(adminReset);
+                    }}
+                    disabled={busy}
                     size="lg"
                     className="flex-1 gap-1.5"
                   >
                     <RotateCcw className="h-5 w-5" />
-                    Reset Quiz
+                    Quiz resetten
                   </Button>
                 ) : (
                   <Button
-                    onClick={() => navigate(questionIndex + 1)}
+                    onClick={() => run(() => adminAdvance(current_index + 1))}
+                    disabled={busy}
                     size="lg"
                     className="flex-1 gap-1.5"
                   >
-                    Next Question
+                    Volgende vraag
                     <ChevronRight className="h-5 w-5" />
                   </Button>
                 )}
@@ -402,9 +321,162 @@ export default function AdminPage() {
             )}
           </>
         ) : null}
+
+        {!isWaiting && (
+          <ChallengePanel
+            roster={state.roster}
+            statuses={state.challenge.statuses}
+            busy={busy}
+            onDeclare={(username, status) => run(() => adminDeclareChallenge(username, status))}
+          />
+        )}
       </main>
 
       <BottomNav quizHref="/admin" />
+    </div>
+  );
+}
+
+function PayoutMarket({
+  market,
+  marketKey,
+  title,
+  standingLabel,
+  settlement,
+  busy,
+  onSettle,
+}: {
+  market: Market | undefined;
+  marketKey: string;
+  title: string;
+  standingLabel: string;
+  settlement: Settlement | null;
+  busy: boolean;
+  onSettle: () => void;
+}) {
+  const settled = market?.is_settled ?? false;
+  const isWinner = marketKey === QUIZ_WINNER_MARKET;
+  const Icon = isWinner ? Trophy : TrendingDown;
+  return (
+    <div className="w-full rounded-xl border bg-card p-4">
+      <div className="mb-1 flex items-center gap-2">
+        <Icon className="h-5 w-5 text-amber-600" />
+        <h3 className="font-semibold">{title}</h3>
+      </div>
+      {settled ? (
+        <div className="text-sm text-muted-foreground">
+          {settlement ? (
+            <p>
+              <span className="font-semibold text-foreground">{settlement.paid_out}</span> coins
+              uitbetaald.{" "}
+              {settlement.winners.length > 0
+                ? `${settlement.winners.join(", ")}.`
+                : "Geen uitslag (geen scores)."}{" "}
+              {settlement.won_count} gewonnen / {settlement.lost_count} verloren inzet(ten).
+            </p>
+          ) : (
+            <p>Inzetten zijn afgerekend.</p>
+          )}
+        </div>
+      ) : (
+        <>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Reken deze inzetten af op basis van {standingLabel} voordat je de quiz reset.
+          </p>
+          <Button onClick={onSettle} disabled={busy} size="lg" className="w-full gap-1.5">
+            <Coins className="h-5 w-5" />
+            Inzetten uitbetalen
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ChallengePanel({
+  roster,
+  statuses,
+  busy,
+  onDeclare,
+}: {
+  roster: string[];
+  statuses: Record<string, ChallengeStatus>;
+  busy: boolean;
+  onDeclare: (username: string, status: ChallengeStatus) => void;
+}) {
+  if (roster.length === 0) return null;
+  return (
+    <div className="w-full max-w-md rounded-xl border bg-card p-4">
+      <div className="mb-1 flex items-center gap-2">
+        <Target className="h-5 w-5 text-primary" />
+        <h3 className="font-semibold">Challenges</h3>
+      </div>
+      <p className="mb-3 text-sm text-muted-foreground">
+        Geef aan of elke speler zijn persoonlijke challenge heeft gehaald. Challenge-inzetten
+        worden automatisch uitbetaald zodra elke keuze is gehaald.
+      </p>
+      <div className="flex flex-col gap-1.5">
+        {roster.map((name) => {
+          const status = statuses[name] ?? "pending";
+          return (
+            <div
+              key={name}
+              className="flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm"
+            >
+              <span className="flex-1 truncate font-medium">{name}</span>
+              <div className="flex shrink-0 gap-1.5">
+                <button
+                  onClick={() => onDeclare(name, "completed")}
+                  disabled={busy}
+                  aria-label={`${name} challenge gehaald`}
+                  className={`flex h-11 w-11 items-center justify-center rounded-lg transition-colors ${
+                    status === "completed"
+                      ? "bg-green-500 text-white"
+                      : "border text-muted-foreground hover:bg-green-50 active:bg-green-100"
+                  }`}
+                >
+                  <CheckCircle className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={() => onDeclare(name, "failed")}
+                  disabled={busy}
+                  aria-label={`${name} challenge mislukt`}
+                  className={`flex h-11 w-11 items-center justify-center rounded-lg transition-colors ${
+                    status === "failed"
+                      ? "bg-red-500 text-white"
+                      : "border text-muted-foreground hover:bg-red-50 active:bg-red-100"
+                  }`}
+                >
+                  <XCircle className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PresencePanel({ players, present }: { players: string[]; present: string[] }) {
+  const presentSet = new Set(present);
+  const hereCount = players.filter((p) => presentSet.has(p)).length;
+
+  return (
+    <div className="flex w-full max-w-md flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      <span className="flex items-center gap-1 font-medium">
+        <Users className="h-3.5 w-3.5" />
+        {hereCount}/{players.length}
+      </span>
+      {players.map((name) => {
+        const here = presentSet.has(name);
+        return (
+          <span key={name} className={`flex items-center gap-1 ${here ? "" : "opacity-40"}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${here ? "bg-green-500" : "bg-muted-foreground"}`} />
+            {name}
+          </span>
+        );
+      })}
     </div>
   );
 }

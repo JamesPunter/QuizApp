@@ -19,6 +19,7 @@ INSTALLED_APPS = [
     "rest_framework.authtoken",
     "corsheaders",
     "accounts",
+    "quiz",
 ]
 
 MIDDLEWARE = [
@@ -82,3 +83,8 @@ REST_FRAMEWORK = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
 ]
+
+# Quiz night is a private LAN game: players connect from phones on the same
+# WiFi via the host's LAN IP, so we can't enumerate origins ahead of time.
+# Safe for a trusted local network in DEBUG; tighten before any public deploy.
+CORS_ALLOW_ALL_ORIGINS = True

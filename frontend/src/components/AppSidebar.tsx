@@ -28,7 +28,7 @@ export default function AppSidebar({ username }: AppSidebarProps) {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger
-        render={<Button variant="ghost" size="icon" aria-label="Open menu" />}
+        render={<Button variant="ghost" size="icon" aria-label="Menu openen" />}
       >
         <Menu className="h-5 w-5" />
       </SheetTrigger>
