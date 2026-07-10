@@ -1,0 +1,10 @@
+# Netlify build config for the Next.js frontend (static export -> out/).
+# Set NEXT_PUBLIC_API_URL (and the Tikkie links) in Netlify's UI:
+#   Site settings -> Environment variables.
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = "out"
+
+[build.environment]
+  NODE_VERSION = "20"

@@ -1,0 +1,25 @@
+# Render Blueprint for the Django backend. In the Render dashboard:
+#   New +  ->  Blueprint  ->  pick this repo. It reads this file.
+# DATABASE_URL is intentionally not set here (sync: false) — paste your Neon
+# Postgres connection string into it in the dashboard after the service is created.
+services:
+  - type: web
+    name: quizapp-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate"
+    startCommand: "gunicorn core.wsgi:application"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: "api.lasvacaciones.nl"
+      - key: FRONTEND_ORIGIN
+        value: "https://lasvacaciones.nl"
+      - key: DATABASE_URL
+        sync: false

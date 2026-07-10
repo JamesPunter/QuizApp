@@ -430,10 +430,6 @@ function ChallengeMarket({ state, setState, admin, username }: ChallengeMarketPr
       settled={settled}
       open={marketOpen}
     >
-      <p className="mb-3 text-xs text-muted-foreground">
-        Kies de spelers van wie jij denkt dat ze hun challenge halen. Hoe meer je kiest, hoe hoger
-        de uitbetaling — maar als er zelfs één mislukt, verlies je alles. Eén inzet per persoon.
-      </p>
 
       {admin && !settled && (
         <MarketToggle open={marketOpen} busy={busy} onToggle={() => toggleMarket(!marketOpen)} />
@@ -589,10 +585,6 @@ function IndividualBetsSection({
       </button>
       {!collapsed && (
         <div className="px-4 pb-4">
-          <p className="mb-3 text-xs text-muted-foreground">
-            Wed of een speler iets flikt tijdens de quiz. De odds stijgen tot 2× tegen de laatste
-            vraag — nu {multiplier.toFixed(2)}×. Je mag zo vaak inzetten als je wilt.
-          </p>
           {markets.length === 0 ? (
             <p className="text-sm italic text-muted-foreground">Nog geen betjes beschikbaar.</p>
           ) : (
