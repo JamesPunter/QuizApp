@@ -23,6 +23,23 @@ PRESENCE_TTL_SECONDS = 12
 # Every player starts a betting game with this many coins.
 STARTING_BUDGET = 1000
 
+# --- End-of-quiz rank coin rewards -------------------------------------------
+# Winning the quiz is only one way to end up with the most coins: when the final
+# question is scored, every player who joined is paid (or docked) coins by their
+# finishing position in the score ranking. RANK_COIN_REWARDS is the fixed table
+# for the eight-strong cast (index 0 = 1st place); first place wins the most and
+# the bottom two places are docked. Also shown on the Tussenstand throughout the
+# game as the coins each position is currently playing for (see
+# services.rank_reward_map / award_rank_coins).
+RANK_COIN_REWARDS = [1000, 750, 500, 200, 100, 0, -250, -500]
+
+
+def rank_coin_rewards(num_players):
+    """Coins for finishing positions 1..num_players (index 0 = 1st place), taken
+    from the fixed RANK_COIN_REWARDS table. One source of truth for both the
+    payout and the Tussenstand preview."""
+    return RANK_COIN_REWARDS[: max(0, num_players)]
+
 # Markets, all keyed by these constants.
 #  - quiz_winner: "Wie wint de quiz?"  — highest final score wins, settled at end.
 #  - quiz_loser:  "Wie wordt laatste?" — lowest final score wins, settled at end.
@@ -37,6 +54,12 @@ CHALLENGE_MARKET = "challenge"
 # Challenge parlay odds: each picked player multiplies the payout by this factor,
 # so total decimal odds = CHALLENGE_ODDS_FACTOR ** (number of players picked).
 CHALLENGE_ODDS_FACTOR = 1.8
+
+# Coins paid to a player when the admins approve their personal challenge as
+# completed. Handed out exactly once, the moment the verdict is set to completed
+# (see services.award_challenge_reward); idempotent via
+# Player.challenge_reward_paid so re-toggling the verdict never pays twice.
+CHALLENGE_COMPLETION_REWARD = 500
 
 # --- Minigames: slot machine -------------------------------------------------
 # The slot has 3 reels. A spin wins only when all 3 reels land on the same
@@ -54,10 +77,14 @@ SLOT_MULTIPLIERS = {SLOT_2X: 2, SLOT_3X: 3, SLOT_SHOT: 0, SLOT_SIP: 0}
 # Chance a spin is a win. Honest independent reels would only match ~1/16 of the
 # time; we bias the roll so roughly half of spins land a prize.
 SLOT_WIN_PROBABILITY = 0.5
-# The jackpot: a flat coin prize that lands roughly 1 in 20 spins regardless of
-# the stake. It sits outside SLOT_SYMBOLS so it can only appear via this roll.
+# The jackpot: a big coin prize that lands roughly 1 in 20 spins. It sits outside
+# SLOT_SYMBOLS so it can only appear via this roll. It pays a multiple of the
+# STAKE (not a flat amount) so the house edge is the same at every stake tier — a
+# flat jackpot made the cheap 50-coin spin wildly player-favourable. With this
+# multiplier every spin returns 0.05*7 + 0.475*1.25 = 94.4% of the stake on
+# average (a ~5.6% house edge), matching the crash game's edge.
 SLOT_JACKPOT_PROBABILITY = 0.05
-SLOT_JACKPOT_COINS = 800
+SLOT_JACKPOT_MULTIPLIER = 7
 
 # All three minigames share the same stake tiers.
 MINIGAME_COSTS = SLOT_COSTS
@@ -181,6 +208,9 @@ class GameState(models.Model):
     current_index = models.IntegerField(default=-1)  # -1 = waiting / not started
     entry_state = models.CharField(max_length=20, choices=ENTRY_CHOICES, default=OPEN)
     scores_visible = models.BooleanField(default=False)
+    # Set once the end-of-quiz rank coins have been handed out (when the final
+    # question is scored), so the payout runs exactly once. Cleared on reset.
+    rank_coins_awarded = models.BooleanField(default=False)
 
     @classmethod
     def get(cls):
@@ -218,6 +248,21 @@ class Mark(models.Model):
 class Score(models.Model):
     player = models.OneToOneField(User, on_delete=models.CASCADE, related_name="score")
     points = models.IntegerField(default=0)
+
+
+class RankReward(models.Model):
+    """The end-of-quiz coin award for one player: their finishing position and
+    the coins credited (docked when negative). Written once when the final
+    question is scored (see services.award_rank_coins) so the app can show the
+    final "coins per position" breakdown. Cleared on reset."""
+
+    player = models.ForeignKey(User, on_delete=models.CASCADE, related_name="rank_rewards")
+    rank = models.PositiveIntegerField()
+    coins = models.IntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["rank"]
 
 
 class ScoreSnapshot(models.Model):
@@ -266,6 +311,10 @@ class Player(models.Model):
     challenge_status = models.CharField(
         max_length=10, choices=CHALLENGE_CHOICES, default=CHALLENGE_PENDING
     )
+    # Set once the CHALLENGE_COMPLETION_REWARD coins have been paid for a
+    # completed challenge, so the reward lands exactly once no matter how often
+    # the admin re-toggles the verdict. Cleared on reset.
+    challenge_reward_paid = models.BooleanField(default=False)
 
 
 class Presence(models.Model):

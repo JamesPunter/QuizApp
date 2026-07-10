@@ -19,6 +19,7 @@ from .models import (
     CHALLENGE_MARKET,
     QUIZ_LOSER_MARKET,
     QUIZ_WINNER_MARKET,
+    SLOT_JACKPOT_MULTIPLIER,
     SLOT_SHOT,
     ActivityEvent,
     Bet,
@@ -29,9 +30,11 @@ from .models import (
     Market,
     Player,
     Question,
+    RankReward,
     Score,
     ScoreSnapshot,
     SlotDrink,
+    rank_coin_rewards,
 )
 
 
@@ -138,6 +141,44 @@ class BettingMarketsTest(TestCase):
             Player.objects.get(user=self.users["Niels"]).challenge_status,
             Player.CHALLENGE_PENDING,
         )
+
+    def test_completing_a_challenge_pays_the_player_the_reward(self):
+        from .models import CHALLENGE_COMPLETION_REWARD
+
+        before = self.budget("Niels")
+        services.declare_challenge("Niels", Player.CHALLENGE_COMPLETED)
+        self.assertEqual(self.budget("Niels"), before + CHALLENGE_COMPLETION_REWARD)
+        self.assertTrue(
+            Player.objects.get(user=self.users["Niels"]).challenge_reward_paid
+        )
+
+    def test_challenge_reward_is_paid_only_once_when_re_toggled(self):
+        from .models import CHALLENGE_COMPLETION_REWARD
+
+        before = self.budget("Niels")
+        services.declare_challenge("Niels", Player.CHALLENGE_COMPLETED)
+        # Admin corrects to pending, then re-approves — still one payout.
+        services.declare_challenge("Niels", Player.CHALLENGE_PENDING)
+        services.declare_challenge("Niels", Player.CHALLENGE_COMPLETED)
+        self.assertEqual(self.budget("Niels"), before + CHALLENGE_COMPLETION_REWARD)
+
+    def test_failed_challenge_pays_no_reward(self):
+        before = self.budget("Niels")
+        services.declare_challenge("Niels", Player.CHALLENGE_FAILED)
+        self.assertEqual(self.budget("Niels"), before)
+        self.assertFalse(
+            Player.objects.get(user=self.users["Niels"]).challenge_reward_paid
+        )
+
+    def test_batch_save_pays_the_completion_reward(self):
+        from .models import CHALLENGE_COMPLETION_REWARD
+
+        before = self.budget("Niels")
+        services.save_challenge_statuses({"Niels": Player.CHALLENGE_COMPLETED})
+        self.assertEqual(self.budget("Niels"), before + CHALLENGE_COMPLETION_REWARD)
+        # A second identical save must not pay again.
+        services.save_challenge_statuses({"Niels": Player.CHALLENGE_COMPLETED})
+        self.assertEqual(self.budget("Niels"), before + CHALLENGE_COMPLETION_REWARD)
 
     def test_save_statuses_persists_batch_and_settles_once(self):
         self._open_market(CHALLENGE_MARKET)
@@ -379,19 +420,22 @@ class SlotDrinkTest(TestCase):
         ), mock.patch("quiz.services.random.choice", return_value=SLOT_SHOT):
             return services.spin_slot(self.user, 100)
 
-    def test_jackpot_pays_800_coins_flat_regardless_of_stake(self):
+    def test_jackpot_pays_a_multiple_of_the_stake(self):
         # The first random() lands inside the jackpot band, so the spin is a
-        # jackpot no matter the stake: pay 800 coins minus the 100 stake.
+        # jackpot: it pays SLOT_JACKPOT_MULTIPLIER * stake minus the stake. The
+        # prize scales with the stake so the house edge is equal at every tier.
         budget_before = Player.objects.get(user=self.user).budget
         with mock.patch("quiz.services.random.random", return_value=0.0):
             result, err = services.spin_slot(self.user, 100)
+        expected_win = 100 * SLOT_JACKPOT_MULTIPLIER
         self.assertIsNone(err)
         self.assertTrue(result["win"])
         self.assertEqual(result["symbol"], "jackpot")
         self.assertEqual(result["reels"], ["jackpot", "jackpot", "jackpot"])
-        self.assertEqual(result["coins_won"], 800)
+        self.assertEqual(result["coins_won"], expected_win)
         self.assertEqual(
-            Player.objects.get(user=self.user).budget, budget_before + 800 - 100
+            Player.objects.get(user=self.user).budget,
+            budget_before + expected_win - 100,
         )
         # A jackpot is a coin prize, not a drink — nothing to confirm.
         self.assertFalse(SlotDrink.objects.filter(player=self.user).exists())
@@ -451,6 +495,117 @@ class SlotDrinkTest(TestCase):
         self.assertTrue(SlotDrink.objects.exists())
         services.reset_game()
         self.assertFalse(SlotDrink.objects.exists())
+
+
+class RankRewardTest(TestCase):
+    """At the end of the quiz every player is paid (or docked) coins by their
+    finishing position in the score ranking."""
+
+    def setUp(self):
+        # The full eight-strong cast with distinct, descending scores, so the
+        # ranking maps cleanly onto the fixed 1..8 reward table.
+        self.users = {}
+        for name, points in [
+            ("Niels", 8), ("Stein", 7), ("Ivar", 6), ("Matta", 5),
+            ("Levi", 4), ("Sep", 3), ("Max", 2), ("Tris", 1),
+        ]:
+            user = User.objects.create(username=name)
+            Player.objects.create(user=user, budget=1000, in_roster=True)
+            Score.objects.create(player=user, points=points)
+            self.users[name] = user
+
+    def budget(self, name):
+        return Player.objects.get(user=self.users[name]).budget
+
+    def test_schedule_is_the_fixed_table(self):
+        self.assertEqual(
+            rank_coin_rewards(8), [1000, 750, 500, 200, 100, 0, -250, -500]
+        )
+        # Fewer players take the top of the table.
+        self.assertEqual(rank_coin_rewards(3), [1000, 750, 500])
+
+    def test_award_pays_each_player_by_position(self):
+        services.award_rank_coins()
+        rewards = rank_coin_rewards(8)
+        for i, name in enumerate(
+            ["Niels", "Stein", "Ivar", "Matta", "Levi", "Sep", "Max", "Tris"]
+        ):
+            self.assertEqual(self.budget(name), 1000 + rewards[i])
+        # A RankReward row is recorded per player, ranked 1..8.
+        self.assertEqual(RankReward.objects.count(), 8)
+        self.assertEqual(RankReward.objects.get(player=self.users["Niels"]).rank, 1)
+        self.assertEqual(RankReward.objects.get(player=self.users["Tris"]).rank, 8)
+
+    def test_award_is_idempotent(self):
+        services.award_rank_coins()
+        first = self.budget("Niels")
+        services.award_rank_coins()  # second call must be a no-op
+        self.assertEqual(self.budget("Niels"), first)
+        self.assertEqual(RankReward.objects.count(), 8)
+
+    def test_tied_players_split_their_positions_rewards(self):
+        # Put Stein level with Niels at the top: they tie for 1st, sharing the
+        # 1st- and 2nd-place amounts evenly.
+        Score.objects.filter(player=self.users["Stein"]).update(points=8)
+        schedule = rank_coin_rewards(8)
+        share = round((schedule[0] + schedule[1]) / 2)
+        services.award_rank_coins()
+        self.assertEqual(self.budget("Niels"), 1000 + share)
+        self.assertEqual(self.budget("Stein"), 1000 + share)
+        # Both are recorded at the shared top position.
+        self.assertEqual(RankReward.objects.get(player=self.users["Niels"]).rank, 1)
+        self.assertEqual(RankReward.objects.get(player=self.users["Stein"]).rank, 1)
+
+    def test_docking_last_place_never_goes_below_zero(self):
+        Player.objects.filter(user=self.users["Tris"]).update(budget=100)
+        services.award_rank_coins()  # last place is docked 500, floored at 0
+        self.assertEqual(self.budget("Tris"), 0)
+
+    def test_finalizing_the_last_question_does_not_auto_pay_out(self):
+        # Scoring the final question no longer pays out on its own — the payout is
+        # the admin's separate "Uitbetalen" button (award_rank_coins).
+        question = Question.objects.create(order=1, type=Question.TEXT, text="Q")
+        game = GameState.get()
+        game.current_index = 0
+        game.entry_state = GameState.CLOSED
+        game.save()
+        Mark.objects.create(question=question, player=self.users["Niels"], correct=True)
+
+        services.finalize(game, question)
+
+        game.refresh_from_db()
+        self.assertFalse(game.rank_coins_awarded)
+        self.assertEqual(RankReward.objects.count(), 0)
+
+    def test_preview_matches_the_eventual_payout(self):
+        preview = services.rank_reward_map(services.current_scores())
+        services.award_rank_coins()
+        for name, coins in preview.items():
+            self.assertEqual(
+                RankReward.objects.get(player=self.users[name]).coins, coins
+            )
+
+    def test_results_published_only_after_all_three_payouts(self):
+        admin = User.objects.create(username="James")
+        self.assertFalse(services.build_state(admin)["results_published"])
+
+        # Two of three: both outcome markets settled, rank coins not yet paid.
+        Market.objects.create(key=QUIZ_WINNER_MARKET, is_open=True)
+        Market.objects.create(key=QUIZ_LOSER_MARKET, is_open=True)
+        services.settle_market(QUIZ_WINNER_MARKET)
+        services.settle_market(QUIZ_LOSER_MARKET)
+        self.assertFalse(services.build_state(admin)["results_published"])
+
+        # The third payout publishes the standings.
+        services.award_rank_coins()
+        self.assertTrue(services.build_state(admin)["results_published"])
+
+    def test_reset_clears_rank_rewards_and_the_flag(self):
+        services.award_rank_coins()
+        self.assertTrue(RankReward.objects.exists())
+        services.reset_game()
+        self.assertFalse(RankReward.objects.exists())
+        self.assertFalse(GameState.get().rank_coins_awarded)
 
 
 class BudgetSnapshotTest(TestCase):

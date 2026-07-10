@@ -175,10 +175,30 @@ export interface ActivityEvent {
   created_at: string;
 }
 
+// End-of-quiz coins per finishing position: the coins each player wins (or, when
+// negative, is docked) for their place in the score ranking. `schedule` is the
+// amount per position among the joined players (index 0 = 1st); `preview` is the
+// live {username: coins} of what each player would get if the quiz ended now;
+// `results` is the recorded per-player payout once `awarded` is true.
+export interface RankReward {
+  username: string;
+  rank: number;
+  coins: number;
+}
+export interface RankRewards {
+  schedule: number[];
+  preview: Record<string, number>;
+  awarded: boolean;
+  results: RankReward[];
+}
+
 export interface GameState {
   current_index: number;
   entry_state: EntryState;
   scores_visible: boolean;
+  // True once both outcome markets are settled and the rank coins are paid out;
+  // unlocks the final scores + budgets for every player.
+  results_published: boolean;
   total_questions: number;
   question: CurrentQuestion | null;
   you: {
@@ -201,6 +221,9 @@ export interface GameState {
   };
   scores: Record<string, number>;
   score_history: Array<Record<string, number>>;
+  // End-of-quiz coins per finishing position (preview throughout, final results
+  // once handed out when the last question is scored).
+  rank_rewards: RankRewards;
   roster: string[];
   budgets: Record<string, number>;
   // Coins entering each round that has started (1-based round number), for the
@@ -210,6 +233,8 @@ export interface GameState {
   challenge: {
     statuses: Record<string, ChallengeStatus>;
     factor: number;
+    // Coins paid to a player when their challenge is approved as completed.
+    reward: number;
   };
   answers: AdminAnswer[];
   // Coin packs awaiting admin confirmation (admin only; [] for players).
@@ -458,6 +483,12 @@ export function adminMarket(key: string, open: boolean): Promise<GameState> {
 
 export function adminSettle(key: string = QUIZ_WINNER_MARKET): Promise<GameState> {
   return request<GameState>("/api/admin/settle/", { method: "POST", body: { key } });
+}
+
+// The third end-of-quiz payout: hand out the coins each player earned for their
+// finishing position in the score ranking. Idempotent.
+export function adminPayout(): Promise<GameState> {
+  return request<GameState>("/api/admin/payout/", { method: "POST", body: {} });
 }
 
 export function adminDeclareChallenge(

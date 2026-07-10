@@ -22,6 +22,7 @@ urlpatterns = [
     path("admin/scores-visible/", views.ScoresVisibleView.as_view(), name="admin-scores-visible"),
     path("admin/market/", views.MarketView.as_view(), name="admin-market"),
     path("admin/settle/", views.SettleView.as_view(), name="admin-settle"),
+    path("admin/payout/", views.PayoutView.as_view(), name="admin-payout"),
     path("admin/challenge/", views.ChallengeDeclareView.as_view(), name="admin-challenge"),
     path("admin/challenge/save/", views.ChallengeSaveView.as_view(), name="admin-challenge-save"),
     path("admin/confirm-purchase/", views.ConfirmPurchaseView.as_view(), name="admin-confirm-purchase"),

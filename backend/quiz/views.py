@@ -298,6 +298,19 @@ class SettleView(APIView):
         return Response(state)
 
 
+class PayoutView(APIView):
+    """Admin: the third end-of-quiz payout — hand out the coins each player has
+    earned for their finishing position in the score ranking (last place is
+    docked). Idempotent; once this and both outcome markets are settled the
+    final scores + budgets are published to every player."""
+
+    permission_classes = [IsQuizAdmin]
+
+    def post(self, request):
+        services.award_rank_coins()
+        return Response(services.build_state(request.user))
+
+
 class ChallengeDeclareView(APIView):
     permission_classes = [IsQuizAdmin]
 

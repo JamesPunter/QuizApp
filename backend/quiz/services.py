@@ -13,6 +13,7 @@ from django.utils import timezone
 import random
 
 from .models import (
+    CHALLENGE_COMPLETION_REWARD,
     CHALLENGE_MARKET,
     CHALLENGE_ODDS_FACTOR,
     COIN_PACK_COINS,
@@ -29,7 +30,7 @@ from .models import (
     ROULETTE_RED_NUMBERS,
     SLOT_COSTS,
     SLOT_JACKPOT,
-    SLOT_JACKPOT_COINS,
+    SLOT_JACKPOT_MULTIPLIER,
     SLOT_JACKPOT_PROBABILITY,
     SLOT_MULTIPLIERS,
     SLOT_SHOT,
@@ -51,10 +52,12 @@ from .models import (
     Player,
     Presence,
     Question,
+    RankReward,
     Score,
     ScoreSnapshot,
     SlotDrink,
     is_admin_username,
+    rank_coin_rewards,
     resolve_contestant,
 )
 
@@ -290,6 +293,16 @@ def build_state(user):
         for m in Market.objects.all()
     ]
 
+    # The three end-of-quiz payouts — both outcome markets settled + the rank
+    # coins handed out — together publish the final scores and budgets to every
+    # player's quiz homepage (see the /quiz results view).
+    settled = {m["key"]: m["is_settled"] for m in markets}
+    results_published = (
+        settled.get(QUIZ_WINNER_MARKET, False)
+        and settled.get(QUIZ_LOSER_MARKET, False)
+        and game.rank_coins_awarded
+    )
+
     # Per-user fields.
     my_answer = None
     my_bonus_answer = None
@@ -376,6 +389,9 @@ def build_state(user):
         "current_index": idx,
         "entry_state": game.entry_state,
         "scores_visible": game.scores_visible,
+        # True once both outcome markets are settled and the rank coins are paid
+        # out; unlocks the final scores + budgets for every player.
+        "results_published": results_published,
         "total_questions": total,
         "question": question,
         "you": {
@@ -399,6 +415,9 @@ def build_state(user):
         },
         "scores": scores,
         "score_history": history,
+        # End-of-quiz coins per finishing position: the live preview of what each
+        # player would win/lose now, plus the final results once handed out.
+        "rank_rewards": rank_rewards_state(),
         "roster": roster,
         "budgets": budgets,
         "budget_history": budget_history,
@@ -408,6 +427,8 @@ def build_state(user):
         "challenge": {
             "statuses": challenge_statuses(),
             "factor": CHALLENGE_ODDS_FACTOR,
+            # Coins a player is paid when their challenge is approved as completed.
+            "reward": CHALLENGE_COMPLETION_REWARD,
         },
         "answers": admin_answers,
         # Coin packs awaiting confirmation (admin only; [] for players).
@@ -569,13 +590,14 @@ def spin_slot(user, cost):
 
     # Decide the outcome first, then build reels to match, so the win rate is
     # SLOT_WIN_PROBABILITY regardless of the number of symbols. The jackpot is
-    # rolled first: a flat SLOT_JACKPOT_COINS prize (independent of the stake)
-    # that lands SLOT_JACKPOT_PROBABILITY of the time. Otherwise an ordinary win
-    # sets all three reels to one random symbol; a loss is any non-matching combo.
+    # rolled first: a SLOT_JACKPOT_MULTIPLIER * stake prize that lands
+    # SLOT_JACKPOT_PROBABILITY of the time. Scaling it by the stake keeps the
+    # house edge equal across stake tiers. Otherwise an ordinary win sets all
+    # three reels to one random symbol; a loss is any non-matching combo.
     if random.random() < SLOT_JACKPOT_PROBABILITY:
         symbol = SLOT_JACKPOT
         reels = [symbol, symbol, symbol]
-        coins_won = SLOT_JACKPOT_COINS
+        coins_won = cost * SLOT_JACKPOT_MULTIPLIER
     elif random.random() < SLOT_WIN_PROBABILITY:
         symbol = random.choice(SLOT_SYMBOLS)
         reels = [symbol, symbol, symbol]
@@ -946,6 +968,102 @@ def quiz_losers(scores):
     return [n for n, s in entries.items() if s == mn]
 
 
+# --- End-of-quiz rank coin rewards -------------------------------------------
+
+
+def _ranked_participants(scores):
+    """Players who joined, sorted by score descending (name as a stable
+    tie-break). Returns a list of (username, score)."""
+    participants = participant_usernames()
+    entries = [(n, scores.get(n, 0)) for n in participants]
+    entries.sort(key=lambda t: (-t[1], t[0].lower()))
+    return entries
+
+
+def _rank_positions(ranked):
+    """{username: finishing position (1-based)} for a score-sorted list, where
+    tied players share the top position of their group (1,1,3,...)."""
+    positions = {}
+    i = 0
+    n = len(ranked)
+    while i < n:
+        j = i
+        while j < n and ranked[j][1] == ranked[i][1]:
+            j += 1
+        for k in range(i, j):
+            positions[ranked[k][0]] = i + 1
+        i = j
+    return positions
+
+
+def rank_reward_map(scores):
+    """{username: coins} the end-of-quiz award would pay each participant at the
+    given scores. Players tied on score split their positions' rewards evenly, so
+    two players tied for 1st each get the average of the 1st- and 2nd-place
+    amounts. Used for both the live Tussenstand preview and the actual payout, so
+    the two always agree."""
+    ranked = _ranked_participants(scores)
+    schedule = rank_coin_rewards(len(ranked))
+    result = {}
+    i = 0
+    n = len(ranked)
+    while i < n:
+        j = i
+        while j < n and ranked[j][1] == ranked[i][1]:
+            j += 1
+        group = schedule[i:j]
+        share = int(round(sum(group) / len(group))) if group else 0
+        for k in range(i, j):
+            result[ranked[k][0]] = share
+        i = j
+    return result
+
+
+def award_rank_coins():
+    """Credit (or dock) every participant their end-of-quiz coins by finishing
+    position, and record a RankReward per player for the results breakdown.
+    Idempotent: guarded by GameState.rank_coins_awarded so it runs exactly once
+    (called when the final question is scored, see finalize)."""
+    game = GameState.get()
+    if game.rank_coins_awarded:
+        return
+    scores = current_scores()
+    ranked = _ranked_participants(scores)
+    if ranked:
+        rewards = rank_reward_map(scores)
+        positions = _rank_positions(ranked)
+        for name, _score in ranked:
+            user = User.objects.filter(username=name).first()
+            if user is None:
+                continue
+            coins = rewards.get(name, 0)
+            player, _ = Player.objects.get_or_create(user=user)
+            # Docking last place can't push a player below zero.
+            player.budget = max(0, player.budget + coins)
+            player.save(update_fields=["budget"])
+            RankReward.objects.create(player=user, rank=positions[name], coins=coins)
+    game.rank_coins_awarded = True
+    game.save(update_fields=["rank_coins_awarded"])
+
+
+def rank_rewards_state():
+    """The Tussenstand rank-coin payload: the schedule (coins per finishing
+    position among the joined players), the live preview of what each participant
+    would get now, whether the final payout has happened, and — once it has — the
+    recorded per-player results."""
+    scores = current_scores()
+    results = [
+        {"username": r.player.username, "rank": r.rank, "coins": r.coins}
+        for r in RankReward.objects.select_related("player")
+    ]
+    return {
+        "schedule": rank_coin_rewards(len(participant_usernames())),
+        "preview": rank_reward_map(scores),
+        "awarded": GameState.get().rank_coins_awarded,
+        "results": results,
+    }
+
+
 def _credit(user, amount):
     player, _ = Player.objects.get_or_create(user=user)
     player.budget += amount
@@ -1018,9 +1136,28 @@ def settle_challenge_bets():
             b.save(update_fields=["status", "payout"])
 
 
+def award_challenge_reward(player):
+    """Pay the fixed challenge-completion reward to a player whose challenge the
+    admins have approved as completed. Handed out exactly once — guarded by
+    Player.challenge_reward_paid so re-toggling the verdict never pays twice, and
+    a no-op for any status other than completed."""
+    if player.challenge_status != Player.CHALLENGE_COMPLETED:
+        return
+    if player.challenge_reward_paid:
+        return
+    player.budget += CHALLENGE_COMPLETION_REWARD
+    player.challenge_reward_paid = True
+    player.save(update_fields=["budget", "challenge_reward_paid"])
+    record_activity(
+        player.user,
+        ActivityEvent.BET,
+        f"haalde de challenge en kreeg {CHALLENGE_COMPLETION_REWARD} coins",
+    )
+
+
 def declare_challenge(username, status):
-    """Admin verdict on a player's challenge; re-settles challenge bets.
-    Returns (player, error)."""
+    """Admin verdict on a player's challenge; pays the completion reward (once)
+    and re-settles challenge bets. Returns (player, error)."""
     if status not in (Player.CHALLENGE_PENDING, Player.CHALLENGE_COMPLETED, Player.CHALLENGE_FAILED):
         return None, "Ongeldige status."
     name = resolve_contestant(username)
@@ -1033,6 +1170,7 @@ def declare_challenge(username, status):
     player, _ = Player.objects.get_or_create(user=user)
     player.challenge_status = status
     player.save(update_fields=["challenge_status"])
+    award_challenge_reward(player)
     settle_challenge_bets()
     return player, None
 
@@ -1071,6 +1209,10 @@ def save_challenge_statuses(statuses):
         if player.challenge_status != verdict:
             player.challenge_status = verdict
             player.save(update_fields=["challenge_status"])
+        # Pay the completion reward once (no-op unless this player is completed
+        # and hasn't been paid yet), so a completed verdict always credits coins
+        # even when the status was already completed from an earlier save.
+        award_challenge_reward(player)
     settle_challenge_bets()
     return None, None
 
@@ -1080,6 +1222,7 @@ def reset_game():
     Answer.objects.all().delete()
     Mark.objects.all().delete()
     Score.objects.all().delete()
+    RankReward.objects.all().delete()
     ScoreSnapshot.objects.all().delete()
     BudgetSnapshot.objects.all().delete()
     Bet.objects.all().delete()
@@ -1092,7 +1235,10 @@ def reset_game():
     # full cast (see roster_usernames), so this doesn't hide anyone; in_roster is
     # kept for the register_player heartbeat.
     Player.objects.all().update(
-        budget=STARTING_BUDGET, in_roster=False, challenge_status=Player.CHALLENGE_PENDING
+        budget=STARTING_BUDGET,
+        in_roster=False,
+        challenge_status=Player.CHALLENGE_PENDING,
+        challenge_reward_paid=False,
     )
     Market.objects.all().update(is_open=False, is_settled=False)
 
@@ -1100,6 +1246,7 @@ def reset_game():
     game.current_index = -1
     game.entry_state = GameState.OPEN
     game.scores_visible = False
+    game.rank_coins_awarded = False
     game.save()
 
 

@@ -29,9 +29,11 @@ import {
   adminMarkBonus,
   adminReset,
   adminSettle,
+  adminPayout,
   releaseName,
   type GameState,
   type Market,
+  type RankReward,
   type Settlement,
 } from "@/lib/api";
 
@@ -262,6 +264,17 @@ export default function AdminPage() {
                   busy={busy}
                   onSettle={() => handleSettle(QUIZ_LOSER_MARKET)}
                 />
+                <PayoutRankCoins
+                  awarded={state.rank_rewards?.awarded ?? false}
+                  results={state.rank_rewards?.results ?? []}
+                  busy={busy}
+                  onPayout={() => run(adminPayout)}
+                />
+                {!state.results_published && (
+                  <p className="px-1 text-center text-xs text-muted-foreground">
+                    Zodra alle drie de uitbetalingen zijn gedaan, zien de spelers de eindstand.
+                  </p>
+                )}
               </div>
             )}
 
@@ -464,6 +477,66 @@ function PayoutMarket({
           <Button onClick={onSettle} disabled={busy} size="lg" className="w-full gap-1.5">
             <Coins className="h-5 w-5" />
             Inzetten uitbetalen
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// The third end-of-quiz payout: coins earned for each player's finishing
+// position in the score ranking (last place is docked). Once this and both
+// outcome markets are settled, the final standings unlock for every player.
+function PayoutRankCoins({
+  awarded,
+  results,
+  busy,
+  onPayout,
+}: {
+  awarded: boolean;
+  results: RankReward[];
+  busy: boolean;
+  onPayout: () => void;
+}) {
+  return (
+    <div className="w-full rounded-xl border bg-card p-4">
+      <div className="mb-1 flex items-center gap-2">
+        <Coins className="h-5 w-5 text-amber-600" />
+        <h3 className="font-semibold">Eindstand uitbetalen</h3>
+      </div>
+      {awarded ? (
+        <div className="text-sm text-muted-foreground">
+          <p className="mb-2">Coins per eindpositie zijn uitbetaald.</p>
+          <ul className="space-y-0.5">
+            {results.map((r) => (
+              <li key={r.username} className="flex items-center justify-between gap-2">
+                <span className="text-foreground">
+                  #{r.rank} {r.username}
+                </span>
+                <span
+                  className={`font-semibold tabular-nums ${
+                    r.coins > 0
+                      ? "text-emerald-600"
+                      : r.coins < 0
+                        ? "text-red-600"
+                        : ""
+                  }`}
+                >
+                  {r.coins > 0 ? "+" : ""}
+                  {r.coins}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Betaal iedere speler de coins uit die horen bij zijn plek in de eindstand.
+          </p>
+          <Button onClick={onPayout} disabled={busy} size="lg" className="w-full gap-1.5">
+            <Coins className="h-5 w-5" />
+            Uitbetalen
           </Button>
         </>
       )}

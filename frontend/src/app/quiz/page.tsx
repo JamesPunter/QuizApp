@@ -2,13 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, Clock, Timer, Lock, CheckCircle, XCircle } from "lucide-react";
+import { LogOut, Clock, Timer, Lock, CheckCircle, XCircle, Coins } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import UsernameBadge from "@/components/UsernameBadge";
 import ChallengeInfoButton from "@/components/ChallengeInfoButton";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useGameState } from "@/lib/useGameState";
+import {
+  SeriesStyle,
+  seriesColorOf,
+  LineChart,
+  buildBudgetPoints,
+} from "@/components/StandingsCharts";
 import { releaseName, submitAnswer, type CurrentQuestion } from "@/lib/api";
 
 const LETTERS = ["A", "B", "C", "D"];
@@ -60,6 +66,33 @@ export default function QuizPage() {
   const myBonusMark = state.you.my_bonus_mark;
   // Bonus questions score 2 (main + bonus correct) or 1 (main only); others 1.
   const pointsWon = myMark ? (myBonusMark ? 2 : 1) : 0;
+
+  // Once the quizmaster has done all three end-of-quiz payouts (and the quiz is on
+  // its last question), the final coins standings are published here on every
+  // player's homepage.
+  if (state.results_published && current_index === state.total_questions - 1) {
+    return (
+      <div className="flex min-h-screen flex-col bg-background pb-20">
+        <header className="flex items-center justify-between px-2 py-2">
+          <UsernameBadge username={username} />
+          <button
+            onClick={handleLogout}
+            aria-label="Uitloggen"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground active:bg-muted"
+          >
+            <LogOut className="h-6 w-6" />
+          </button>
+        </header>
+        <FinalStandings
+          budgets={state.budgets}
+          me={username}
+          roster={state.roster}
+          budgetHistory={state.budget_history}
+        />
+        <BottomNav giftsCount={state.you.gifts_received?.length ?? 0} />
+      </div>
+    );
+  }
 
   // Full-screen result once the admin finalizes.
   if (entry_state === "finalized" && current_index >= 0) {
@@ -164,6 +197,114 @@ export default function QuizPage() {
       </main>
 
       <BottomNav giftsCount={state.you.gifts_received?.length ?? 0} />
+    </div>
+  );
+}
+
+// Standard competition ranking ("1224"): entries tied on `value` share a rank.
+// `entries` must already be sorted by value descending.
+function rankEntries<T extends { value: number }>(entries: T[]): (T & { rank: number })[] {
+  let rank = 0;
+  let prev: number | null = null;
+  return entries.map((e, i) => {
+    if (prev === null || e.value !== prev) rank = i + 1;
+    prev = e.value;
+    return { ...e, rank };
+  });
+}
+
+// The published end-of-quiz screen on every player's homepage: the coins line
+// graph over the quiz (ending on an "eind" point that includes the final
+// payouts) plus the final coins ranking.
+function FinalStandings({
+  budgets,
+  me,
+  roster,
+  budgetHistory,
+}: {
+  budgets: Record<string, number>;
+  me: string;
+  roster: string[];
+  budgetHistory: Array<{ round: number; budgets: Record<string, number> }>;
+}) {
+  const colorOf = seriesColorOf(roster);
+  const budgetPoints = buildBudgetPoints(roster, budgetHistory, budgets, "eind");
+  const budgetRows = rankEntries(
+    Object.entries(budgets)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value),
+  );
+
+  return (
+    <main className="ts-viz flex flex-1 flex-col items-center gap-6 p-6">
+      <SeriesStyle />
+      <h1 className="text-2xl font-semibold">Einduitslag</h1>
+
+      <ChartCard>
+        <LineChart
+          points={budgetPoints}
+          players={roster}
+          colorOf={colorOf}
+          highlight={me}
+          formatY={(v) => String(v)}
+        />
+      </ChartCard>
+
+      <StandingsList
+        icon={<Coins className="h-5 w-5 text-amber-600" />}
+        title="Coins"
+        rows={budgetRows}
+        me={me}
+        renderValue={({ value }) => (
+          <span className="flex items-center gap-1.5 text-sm font-semibold text-amber-700">
+            <Coins className="h-4 w-4" />
+            {value}
+          </span>
+        )}
+      />
+    </main>
+  );
+}
+
+function ChartCard({ children }: { children: React.ReactNode }) {
+  return <div className="w-full max-w-sm rounded-lg border bg-card p-3">{children}</div>;
+}
+
+function StandingsList({
+  icon,
+  title,
+  rows,
+  me,
+  renderValue,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  rows: Array<{ name: string; value: number; rank: number }>;
+  me: string;
+  renderValue: (row: { name: string; value: number }) => React.ReactNode;
+}) {
+  return (
+    <div className="w-full max-w-sm">
+      <div className="mb-2 flex items-center gap-1.5 font-medium">
+        {icon}
+        {title}
+      </div>
+      <ol className="space-y-2">
+        {rows.map((row) => (
+          <li
+            key={row.name}
+            className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${
+              row.name === me ? "border-primary/40 bg-primary/5" : "bg-card"
+            }`}
+          >
+            <span className="w-6 shrink-0 text-sm font-bold text-muted-foreground">
+              #{row.rank}
+            </span>
+            <span className="flex-1 font-medium">{row.name}</span>
+            {renderValue(row)}
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

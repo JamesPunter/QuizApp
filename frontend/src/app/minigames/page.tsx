@@ -162,7 +162,7 @@ const SYMBOLS: Record<SlotSymbol, { Icon: LucideIcon; label: string; reward: str
   coin3x: { Icon: Gem, label: "3×", reward: "3× je inzet" },
   shot: { Icon: Martini, label: "Shot", reward: "Neem een shotje" },
   sip: { Icon: Beer, label: "Slok", reward: "Neem een slok" },
-  jackpot: { Icon: Crown, label: "Jackpot", reward: "JACKPOT! 800 coins" },
+  jackpot: { Icon: Crown, label: "Jackpot", reward: "JACKPOT! 7× je inzet" },
 };
 const ALL_SYMBOLS = Object.keys(SYMBOLS) as SlotSymbol[];
 const randomSymbol = () => ALL_SYMBOLS[Math.floor(Math.random() * ALL_SYMBOLS.length)];

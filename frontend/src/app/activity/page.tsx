@@ -96,6 +96,7 @@ export default function ActivityPage() {
         <ChallengePanel
           roster={state.roster}
           statuses={state.challenge.statuses}
+          reward={state.challenge.reward}
           busy={busy}
           onSave={(statuses) => run(() => adminSaveChallenges(statuses))}
         />
@@ -232,11 +233,13 @@ function PurchasesPanel({
 function ChallengePanel({
   roster,
   statuses,
+  reward,
   busy,
   onSave,
 }: {
   roster: string[];
   statuses: Record<string, ChallengeStatus>;
+  reward: number;
   busy: boolean;
   onSave: (statuses: Record<string, ChallengeStatus>) => Promise<void>;
 }) {
@@ -273,7 +276,9 @@ function ChallengePanel({
     <CollapsibleCard icon={Target} title="Challenges">
       <p className="px-4 pb-3 text-xs text-muted-foreground">
         Zet de status van elke challenge en klik op Opslaan; pas dan wordt de status
-        officieel en worden lopende inzetten afgerekend.
+        officieel en worden lopende inzetten afgerekend. Een gehaalde challenge keert{" "}
+        <span className="font-medium text-foreground">{reward} coins</span> uit aan die
+        speler.
       </p>
       <div className="flex flex-col gap-1.5 px-4">
         {roster.map((name) => {
