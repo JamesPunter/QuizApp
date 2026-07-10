@@ -45,9 +45,104 @@ QUESTIONS = [
             "Wat betekent goyslop?"
         ),
     },
+    # Q6
+    {
+        "type": "text",
+        "text": (
+            "Waar zijn deze termen van: Destined Rivals, Journey Together, "
+            "Surging Sparks?"
+        ),
+    },
+    # Q7
+    {"type": "text", "text": "Wat staat er op Stein zijn rider?"},
+    # Q8
+    {"type": "text", "text": "Hoe lang is de langste voorhuid ter wereld?"},
+    # Q9
+    {
+        "type": "text",
+        "text": (
+            "Mark Spronk is voor het 3e jaar op rij op fietsvakantie. Op zijn "
+            "vorige vakantie is hij bevriend geraakt met meneer Epstein. Dit jaar "
+            "gaat hij samen met meneer Epstein naar Oekraïne voor een betaalde "
+            "jachtvakantie op niets wetende burgers. Mark Spronk rijdt onderweg "
+            "naar een stadje een familie van 5 dood, waarvan 1 zwanger is met een "
+            "baby van 15 weken oud. Tijdens de jachtvakantie maakt Mark 2 keer een "
+            "triple kill en zorgt hij ook voor een ongeluk waar een dozijn mensen "
+            "bij overlijden. Tijdens zijn vakantie daar blijkt de kolencentrale "
+            "waar Mark Spronk de eigenaar van is, opgeblazen, waarbij 7 mensen om "
+            "het leven komen.\n\n"
+            "Voor hoeveel doden zorgt Mark Spronk tijdens zijn vakantie — direct, "
+            "indirect en wettelijk levensvatbaar?"
+        ),
+    },
+    # Q10
+    {
+        "type": "text",
+        "text": (
+            "Wat is unaniem besloten de beste pubquizvraag ten aller tijden?"
+        ),
+    },
+    # Q11
+    {"type": "text", "text": "Wie was de eerste president van Amerika?"},
+    # Q12
+    {
+        "type": "text",
+        "text": (
+            "Hoe heette het restaurant waar Niels na zijn 2e shift op staande "
+            "voet is ontslagen?"
+        ),
+    },
+    # Q13
+    {"type": "text", "text": "Wie was de biggest cuck van het Hyperion?"},
+    # Q14 — intentionally left blank (placeholder, to be filled in later).
+    {"type": "text", "text": "Vraag 14 (volgt nog)"},
+    # Q15
+    {
+        "type": "multiple_choice",
+        "text": "Bij wat horen deze 3 termen: Vanta, Musou & Ivory?",
+        "options": [
+            "Koe soorten",
+            "Kleur soorten",
+            "Papier soorten",
+            "Deeltjesversnellers",
+        ],
+    },
+    # Q16
+    {
+        "type": "text",
+        "text": (
+            "Welke 2 waren Stein zijn meest succesvolle pump-and-dump schemes?"
+        ),
+    },
+    # Q17
+    {"type": "text", "text": "Door welke meid is Niels recentelijk afgewezen?"},
+    # Q18
+    {"type": "text", "text": "Wie heeft het vaakst gebarfd bij de Huyskamer?"},
+    # Q19
+    {
+        "type": "text",
+        "text": (
+            "In welk Europees land ligt een 40 kilometer lang lint van 80 "
+            "vulkanen dat sinds 2018 op de werelderfgoedlijst staat?"
+        ),
+    },
+    # Q20
+    {"type": "text", "text": "Hoe heette de jongen waarmee Isa ging voor Sep?"},
+    # Q21
+    {
+        "type": "multiple_choice",
+        "text": "Welk aapje is Ivar?",
+        "options": ["A", "B", "C", "D"],
+    },
+    # Q22
+    {
+        "type": "multiple_choice",
+        "text": "Wie mist Matthijs het meest?",
+        "options": ["DT", "Vale", "Muriel", "I need you pussy ams"],
+    },
 ]
 
-# Pad up to 30 with empty placeholders (order 6-30), to be filled in later.
+# Pad up to 30 with empty placeholders (order 23-30), to be filled in later.
 for _n in range(len(QUESTIONS) + 1, 31):
     QUESTIONS.append({"type": "text", "text": f"Vraag {_n} (volgt nog)"})
 
