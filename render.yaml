@@ -7,9 +7,14 @@ services:
     name: quizapp-backend
     runtime: python
     rootDir: backend
-    plan: free
+    # Colocate with the Neon DB region — a US backend hitting an EU database
+    # adds ~100-150ms to EVERY query, which the 1s poll multiplies badly.
+    region: frankfurt
+    # Starter never spins down, so no multi-minute cold start on first load.
+    plan: starter
     buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate"
-    startCommand: "gunicorn core.wsgi:application"
+    # Multiple workers + threads so concurrent polls don't queue behind one worker.
+    startCommand: "gunicorn core.wsgi:application --workers 2 --threads 4 --timeout 60"
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.6"

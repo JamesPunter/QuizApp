@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, fetchGameState, type GameState } from "./api";
 
-const POLL_MS = 1000;
+const POLL_MS = 2500;
 
 export function useGameState() {
   const router = useRouter();
@@ -41,11 +41,35 @@ export function useGameState() {
       return;
     }
 
+    let id: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (id === null) id = setInterval(load, POLL_MS);
+    };
+    const stop = () => {
+      if (id !== null) {
+        clearInterval(id);
+        id = null;
+      }
+    };
+
+    // Pause polling while the tab/phone is backgrounded; resume with an
+    // immediate refresh so the screen is current the moment it's viewed again.
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        load();
+        start();
+      } else {
+        stop();
+      }
+    };
+
     load();
-    const id = setInterval(load, POLL_MS);
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       mounted.current = false;
-      clearInterval(id);
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [load, router]);
 
