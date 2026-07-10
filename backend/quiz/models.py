@@ -47,12 +47,17 @@ SLOT_2X = "coin2x"
 SLOT_3X = "coin3x"
 SLOT_SHOT = "shot"
 SLOT_SIP = "sip"
+SLOT_JACKPOT = "jackpot"
 SLOT_SYMBOLS = [SLOT_2X, SLOT_3X, SLOT_SHOT, SLOT_SIP]
 # Coin multiplier applied to the stake for a matching coin symbol (0 = no coins).
 SLOT_MULTIPLIERS = {SLOT_2X: 2, SLOT_3X: 3, SLOT_SHOT: 0, SLOT_SIP: 0}
 # Chance a spin is a win. Honest independent reels would only match ~1/16 of the
 # time; we bias the roll so roughly half of spins land a prize.
 SLOT_WIN_PROBABILITY = 0.5
+# The jackpot: a flat coin prize that lands roughly 1 in 20 spins regardless of
+# the stake. It sits outside SLOT_SYMBOLS so it can only appear via this roll.
+SLOT_JACKPOT_PROBABILITY = 0.05
+SLOT_JACKPOT_COINS = 800
 
 # All three minigames share the same stake tiers.
 MINIGAME_COSTS = SLOT_COSTS

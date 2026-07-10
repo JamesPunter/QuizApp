@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import UsernameBadge from "@/components/UsernameBadge";
+import ChallengeInfoButton from "@/components/ChallengeInfoButton";
 import LiveQuestionBanner from "@/components/LiveQuestionBanner";
 import { Button } from "@/components/ui/button";
 import { useGameState } from "@/lib/useGameState";
@@ -70,13 +71,16 @@ export default function StorePage() {
             </div>
           )}
         </div>
-        <button
-          onClick={handleLogout}
-          aria-label="Uitloggen"
-          className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground active:bg-muted"
-        >
-          <LogOut className="h-6 w-6" />
-        </button>
+        <div className="flex items-center gap-1">
+          {!admin && <ChallengeInfoButton username={username} />}
+          <button
+            onClick={handleLogout}
+            aria-label="Uitloggen"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground active:bg-muted"
+          >
+            <LogOut className="h-6 w-6" />
+          </button>
+        </div>
       </header>
 
       <LiveQuestionBanner live={live} />

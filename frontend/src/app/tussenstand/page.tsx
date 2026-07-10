@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { LogOut, Trophy, Eye, EyeOff, Lock, Coins } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import UsernameBadge from "@/components/UsernameBadge";
+import ChallengeInfoButton from "@/components/ChallengeInfoButton";
 import LiveQuestionBanner from "@/components/LiveQuestionBanner";
 import { useGameState } from "@/lib/useGameState";
 import { adminScoresVisible, releaseName } from "@/lib/api";
@@ -112,6 +113,7 @@ export default function TussenstandPage() {
       <header className="flex items-center justify-between gap-1 px-2 py-2">
         <UsernameBadge username={username} />
         <div className="flex items-center gap-1">
+        {!admin && <ChallengeInfoButton username={username} />}
         {admin && (
           <button
             onClick={toggleScoresVisible}

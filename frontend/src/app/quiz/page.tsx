@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { LogOut, Clock, Timer, Lock, CheckCircle, XCircle } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import UsernameBadge from "@/components/UsernameBadge";
+import ChallengeInfoButton from "@/components/ChallengeInfoButton";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useGameState } from "@/lib/useGameState";
@@ -109,13 +110,16 @@ export default function QuizPage() {
     <div className="flex min-h-screen flex-col bg-background pb-20">
       <header className="flex items-center justify-between px-2 py-2">
         <UsernameBadge username={username} />
-        <button
-          onClick={handleLogout}
-          aria-label="Uitloggen"
-          className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground active:bg-muted"
-        >
-          <LogOut className="h-6 w-6" />
-        </button>
+        <div className="flex items-center gap-1">
+          <ChallengeInfoButton username={username} />
+          <button
+            onClick={handleLogout}
+            aria-label="Uitloggen"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground active:bg-muted"
+          >
+            <LogOut className="h-6 w-6" />
+          </button>
+        </div>
       </header>
 
       <main className="flex flex-1 flex-col items-center justify-center p-8">

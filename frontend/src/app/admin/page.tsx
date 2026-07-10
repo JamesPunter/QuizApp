@@ -41,6 +41,8 @@ export default function AdminPage() {
   // Settlement summary per market key, shown after paying that market out.
   const [settlements, setSettlements] = useState<Record<string, Settlement | null>>({});
   const [busy, setBusy] = useState(false);
+  // When set, show an "are you sure?" dialog before wiping the quiz.
+  const [confirmReset, setConfirmReset] = useState(false);
 
   // Non-admins don't belong here.
   useEffect(() => {
@@ -69,6 +71,13 @@ export default function AdminPage() {
     }
   }
 
+  // Perform the actual quiz reset once the admin confirms.
+  function performReset() {
+    setConfirmReset(false);
+    setSettlements({});
+    run(adminReset);
+  }
+
   function handleLogout() {
     releaseName().finally(() => {
       sessionStorage.removeItem("token");
@@ -95,10 +104,7 @@ export default function AdminPage() {
         <div className="flex items-center gap-1">
           {!isWaiting && (
             <button
-              onClick={() => {
-                setSettlements({});
-                run(adminReset);
-              }}
+              onClick={() => setConfirmReset(true)}
               aria-label="Quiz herstarten"
               className="flex h-11 items-center gap-1.5 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:text-foreground active:bg-muted"
             >
@@ -264,10 +270,7 @@ export default function AdminPage() {
                 {isLast ? (
                   <Button
                     variant="outline"
-                    onClick={() => {
-                      setSettlements({});
-                      run(adminReset);
-                    }}
+                    onClick={() => setConfirmReset(true)}
                     disabled={busy}
                     size="lg"
                     className="flex-1 gap-1.5"
@@ -299,6 +302,60 @@ export default function AdminPage() {
         isAdmin
         activityCount={(state.pending_purchases?.length ?? 0) + (state.pending_slot_drinks?.length ?? 0)}
       />
+
+      {confirmReset && (
+        <ConfirmResetDialog
+          busy={busy}
+          onCancel={() => setConfirmReset(false)}
+          onConfirm={performReset}
+        />
+      )}
+    </div>
+  );
+}
+
+// Blocking "are you sure?" dialog shown before an admin wipes the quiz.
+function ConfirmResetDialog({
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-reset-title"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-sm rounded-xl border bg-card p-5 shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-2 flex items-center gap-2">
+          <RotateCcw className="h-5 w-5 text-primary" />
+          <h2 id="confirm-reset-title" className="text-lg font-semibold">
+            Quiz herstarten?
+          </h2>
+        </div>
+        <p className="mb-5 text-sm text-muted-foreground">
+          Hiermee wordt de quiz teruggezet naar het begin. Alle antwoorden en de huidige voortgang
+          gaan verloren. Weet je het zeker?
+        </p>
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={onCancel} disabled={busy} className="flex-1">
+            Annuleren
+          </Button>
+          <Button onClick={onConfirm} disabled={busy} className="flex-1 gap-1.5">
+            <RotateCcw className="h-4 w-4" />
+            Herstarten
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

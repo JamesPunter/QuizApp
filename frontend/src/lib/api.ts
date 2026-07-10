@@ -78,7 +78,7 @@ export interface Settlement {
 }
 
 // The four slot-machine symbols; a spin wins only when all 3 reels match.
-export type SlotSymbol = "coin2x" | "coin3x" | "shot" | "sip";
+export type SlotSymbol = "coin2x" | "coin3x" | "shot" | "sip" | "jackpot";
 
 export interface SlotResult {
   reels: SlotSymbol[];

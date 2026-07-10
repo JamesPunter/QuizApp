@@ -28,6 +28,9 @@ from .models import (
     ROULETTE_PAYOUTS,
     ROULETTE_RED_NUMBERS,
     SLOT_COSTS,
+    SLOT_JACKPOT,
+    SLOT_JACKPOT_COINS,
+    SLOT_JACKPOT_PROBABILITY,
     SLOT_MULTIPLIERS,
     SLOT_SHOT,
     SLOT_SIP,
@@ -565,19 +568,26 @@ def spin_slot(user, cost):
         return None, "Niet genoeg budget."
 
     # Decide the outcome first, then build reels to match, so the win rate is
-    # SLOT_WIN_PROBABILITY regardless of the number of symbols. A win sets all
-    # three reels to one random symbol; a loss is any non-matching combination.
-    if random.random() < SLOT_WIN_PROBABILITY:
+    # SLOT_WIN_PROBABILITY regardless of the number of symbols. The jackpot is
+    # rolled first: a flat SLOT_JACKPOT_COINS prize (independent of the stake)
+    # that lands SLOT_JACKPOT_PROBABILITY of the time. Otherwise an ordinary win
+    # sets all three reels to one random symbol; a loss is any non-matching combo.
+    if random.random() < SLOT_JACKPOT_PROBABILITY:
+        symbol = SLOT_JACKPOT
+        reels = [symbol, symbol, symbol]
+        coins_won = SLOT_JACKPOT_COINS
+    elif random.random() < SLOT_WIN_PROBABILITY:
         symbol = random.choice(SLOT_SYMBOLS)
         reels = [symbol, symbol, symbol]
+        coins_won = cost * SLOT_MULTIPLIERS.get(symbol, 0)
     else:
         while True:
             reels = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
             if not (reels[0] == reels[1] == reels[2]):
                 break
         symbol = None
+        coins_won = 0
     win = symbol is not None
-    coins_won = cost * SLOT_MULTIPLIERS.get(symbol, 0) if win else 0
 
     # Charge the stake and credit any coin winnings in one budget update.
     player.budget += coins_won - cost

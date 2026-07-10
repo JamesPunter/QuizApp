@@ -23,6 +23,7 @@ import BottomNav from "@/components/BottomNav";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useGameState } from "@/lib/useGameState";
+import { challengeFor } from "@/lib/challenges";
 import {
   adminConfirmPurchase,
   adminConfirmSlotDrink,
@@ -282,7 +283,10 @@ function ChallengePanel({
               key={name}
               className="flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm"
             >
-              <span className="flex-1 truncate font-medium">{name}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">{name}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{challengeFor(name)}</p>
+              </div>
               <div className="flex shrink-0 gap-1.5">
                 <button
                   onClick={() => toggle(name, "completed")}

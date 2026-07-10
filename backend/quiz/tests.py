@@ -371,12 +371,30 @@ class SlotDrinkTest(TestCase):
         self.admin = User.objects.create(username="James")
 
     def _spin_shot(self):
-        # Force a win (random() below the win threshold) landing on the shot
-        # symbol (random.choice returns it), so all three reels are shots.
-        with mock.patch("quiz.services.random.random", return_value=0.0), mock.patch(
-            "quiz.services.random.choice", return_value=SLOT_SHOT
-        ):
+        # Miss the jackpot roll (first random() above its threshold), then force
+        # an ordinary win (second random() below the win threshold) landing on the
+        # shot symbol (random.choice returns it), so all three reels are shots.
+        with mock.patch(
+            "quiz.services.random.random", side_effect=[0.99, 0.0]
+        ), mock.patch("quiz.services.random.choice", return_value=SLOT_SHOT):
             return services.spin_slot(self.user, 100)
+
+    def test_jackpot_pays_800_coins_flat_regardless_of_stake(self):
+        # The first random() lands inside the jackpot band, so the spin is a
+        # jackpot no matter the stake: pay 800 coins minus the 100 stake.
+        budget_before = Player.objects.get(user=self.user).budget
+        with mock.patch("quiz.services.random.random", return_value=0.0):
+            result, err = services.spin_slot(self.user, 100)
+        self.assertIsNone(err)
+        self.assertTrue(result["win"])
+        self.assertEqual(result["symbol"], "jackpot")
+        self.assertEqual(result["reels"], ["jackpot", "jackpot", "jackpot"])
+        self.assertEqual(result["coins_won"], 800)
+        self.assertEqual(
+            Player.objects.get(user=self.user).budget, budget_before + 800 - 100
+        )
+        # A jackpot is a coin prize, not a drink — nothing to confirm.
+        self.assertFalse(SlotDrink.objects.filter(player=self.user).exists())
 
     def test_three_drinks_files_a_pending_drink_and_locks_further_spins(self):
         result, err = self._spin_shot()

@@ -8,6 +8,7 @@ import {
   Gem,
   Martini,
   Beer,
+  Crown,
   Cherry,
   Rocket,
   Disc3,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import UsernameBadge from "@/components/UsernameBadge";
+import ChallengeInfoButton from "@/components/ChallengeInfoButton";
 import LiveQuestionBanner from "@/components/LiveQuestionBanner";
 import { Button } from "@/components/ui/button";
 import { useGameState } from "@/lib/useGameState";
@@ -98,13 +100,16 @@ export default function MinigamesPage() {
             </div>
           )}
         </div>
-        <button
-          onClick={handleLogout}
-          aria-label="Uitloggen"
-          className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground active:bg-muted"
-        >
-          <LogOut className="h-6 w-6" />
-        </button>
+        <div className="flex items-center gap-1">
+          {!admin && <ChallengeInfoButton username={username} />}
+          <button
+            onClick={handleLogout}
+            aria-label="Uitloggen"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground active:bg-muted"
+          >
+            <LogOut className="h-6 w-6" />
+          </button>
+        </div>
       </header>
 
       <LiveQuestionBanner live={live} />
@@ -157,6 +162,7 @@ const SYMBOLS: Record<SlotSymbol, { Icon: LucideIcon; label: string; reward: str
   coin3x: { Icon: Gem, label: "3×", reward: "3× je inzet" },
   shot: { Icon: Martini, label: "Shot", reward: "Neem een shotje" },
   sip: { Icon: Beer, label: "Slok", reward: "Neem een slok" },
+  jackpot: { Icon: Crown, label: "Jackpot", reward: "JACKPOT! 800 coins" },
 };
 const ALL_SYMBOLS = Object.keys(SYMBOLS) as SlotSymbol[];
 const randomSymbol = () => ALL_SYMBOLS[Math.floor(Math.random() * ALL_SYMBOLS.length)];
