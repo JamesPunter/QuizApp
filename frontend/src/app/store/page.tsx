@@ -128,7 +128,7 @@ export default function StorePage() {
         quizHref={admin ? "/admin" : "/quiz"}
         giftsCount={gifts.length}
         isAdmin={admin}
-        activityCount={state.pending_purchases?.length ?? 0}
+        activityCount={(state.pending_purchases?.length ?? 0) + (state.pending_slot_drinks?.length ?? 0)}
       />
     </div>
   );

@@ -19,8 +19,10 @@ from .models import (
     CHALLENGE_MARKET,
     QUIZ_LOSER_MARKET,
     QUIZ_WINNER_MARKET,
+    SLOT_SHOT,
     ActivityEvent,
     Bet,
+    BudgetSnapshot,
     CrashRound,
     GameState,
     Mark,
@@ -29,6 +31,7 @@ from .models import (
     Question,
     Score,
     ScoreSnapshot,
+    SlotDrink,
 )
 
 
@@ -131,6 +134,54 @@ class BettingMarketsTest(TestCase):
     def test_reset_clears_challenge_verdicts(self):
         services.declare_challenge("Niels", Player.CHALLENGE_COMPLETED)
         services.reset_game()
+        self.assertEqual(
+            Player.objects.get(user=self.users["Niels"]).challenge_status,
+            Player.CHALLENGE_PENDING,
+        )
+
+    def test_save_statuses_persists_batch_and_settles_once(self):
+        self._open_market(CHALLENGE_MARKET)
+        bet, _ = services.place_challenge_bet(self.users["Stein"], ["Niels", "Ivar"], 50)
+        # The panel posts the whole cast at once, including players who never
+        # logged in (no account row) and stay pending — this must not error.
+        _, err = services.save_challenge_statuses(
+            {
+                "Niels": Player.CHALLENGE_COMPLETED,
+                "Ivar": Player.CHALLENGE_COMPLETED,
+                "Max": Player.CHALLENGE_PENDING,  # no User row exists
+            }
+        )
+        self.assertIsNone(err)
+        self.assertEqual(
+            Player.objects.get(user=self.users["Ivar"]).challenge_status,
+            Player.CHALLENGE_COMPLETED,
+        )
+        bet.refresh_from_db()
+        self.assertEqual(bet.status, Bet.WON)
+
+    def test_save_statuses_materialises_account_for_absent_player(self):
+        # A real verdict on a cast member who hasn't logged in creates their
+        # account+player row so the verdict (and any bet on them) can settle.
+        self.assertFalse(User.objects.filter(username="Max").exists())
+        _, err = services.save_challenge_statuses({"Max": Player.CHALLENGE_COMPLETED})
+        self.assertIsNone(err)
+        self.assertEqual(
+            Player.objects.get(user__username="Max").challenge_status,
+            Player.CHALLENGE_COMPLETED,
+        )
+
+    def test_save_statuses_can_revert_to_pending(self):
+        services.declare_challenge("Niels", Player.CHALLENGE_COMPLETED)
+        _, err = services.save_challenge_statuses({"Niels": Player.CHALLENGE_PENDING})
+        self.assertIsNone(err)
+        self.assertEqual(
+            Player.objects.get(user=self.users["Niels"]).challenge_status,
+            Player.CHALLENGE_PENDING,
+        )
+
+    def test_save_statuses_rejects_bad_payload_without_writing(self):
+        _, err = services.save_challenge_statuses({"Niels": "bogus"})
+        self.assertIsNotNone(err)
         self.assertEqual(
             Player.objects.get(user=self.users["Niels"]).challenge_status,
             Player.CHALLENGE_PENDING,
@@ -308,3 +359,119 @@ class ActivityFeedTest(TestCase):
         self.assertTrue(ActivityEvent.objects.exists())
         services.reset_game()
         self.assertFalse(ActivityEvent.objects.exists())
+
+
+class SlotDrinkTest(TestCase):
+    """Landing three drink symbols on the slot files a drink for the quizmaster
+    to confirm and locks the player's machine until they do."""
+
+    def setUp(self):
+        self.user = User.objects.create(username="Stein")
+        Player.objects.create(user=self.user, budget=1000, in_roster=True)
+        self.admin = User.objects.create(username="James")
+
+    def _spin_shot(self):
+        # Force a win (random() below the win threshold) landing on the shot
+        # symbol (random.choice returns it), so all three reels are shots.
+        with mock.patch("quiz.services.random.random", return_value=0.0), mock.patch(
+            "quiz.services.random.choice", return_value=SLOT_SHOT
+        ):
+            return services.spin_slot(self.user, 100)
+
+    def test_three_drinks_files_a_pending_drink_and_locks_further_spins(self):
+        result, err = self._spin_shot()
+        self.assertIsNone(err)
+        self.assertTrue(result["win"])
+        self.assertEqual(result["symbol"], "shot")
+        self.assertEqual(
+            SlotDrink.objects.filter(player=self.user, status=SlotDrink.PENDING).count(), 1
+        )
+
+        # The machine is now locked: a second spin is rejected and no stake moves.
+        budget_before = Player.objects.get(user=self.user).budget
+        result2, err2 = services.spin_slot(self.user, 100)
+        self.assertIsNone(result2)
+        self.assertIn("beheerder", err2)
+        self.assertEqual(Player.objects.get(user=self.user).budget, budget_before)
+
+    def test_admin_confirming_the_drink_unlocks_the_machine(self):
+        self._spin_shot()
+        drink = SlotDrink.objects.get()
+
+        _, err = services.confirm_slot_drink(drink.id)
+        self.assertIsNone(err)
+        drink.refresh_from_db()
+        self.assertEqual(drink.status, SlotDrink.CONFIRMED)
+
+        # Spinning works again once confirmed (result depends on the real RNG,
+        # but it's no longer blocked by the lock).
+        _, err2 = services.spin_slot(self.user, 100)
+        self.assertIsNone(err2)
+
+    def test_confirming_an_already_confirmed_drink_is_rejected(self):
+        self._spin_shot()
+        drink = SlotDrink.objects.get()
+        services.confirm_slot_drink(drink.id)
+        _, err = services.confirm_slot_drink(drink.id)
+        self.assertIsNotNone(err)
+
+    def test_pending_drink_shows_for_admins_and_locks_the_player_state(self):
+        self._spin_shot()
+
+        admin_state = services.build_state(self.admin)
+        self.assertEqual(len(admin_state["pending_slot_drinks"]), 1)
+        self.assertEqual(admin_state["pending_slot_drinks"][0]["username"], "Stein")
+        self.assertEqual(admin_state["pending_slot_drinks"][0]["kind"], "shot")
+
+        player_state = services.build_state(self.user)
+        self.assertEqual(player_state["you"]["slot_lock"], {"kind": "shot"})
+        # Players never see the admin queue.
+        self.assertEqual(player_state["pending_slot_drinks"], [])
+
+    def test_reset_clears_pending_drinks(self):
+        self._spin_shot()
+        self.assertTrue(SlotDrink.objects.exists())
+        services.reset_game()
+        self.assertFalse(SlotDrink.objects.exists())
+
+
+class BudgetSnapshotTest(TestCase):
+    """Opening a round records everyone's coins entering it, once, for the
+    Tussenstand budget-over-rounds graph."""
+
+    def setUp(self):
+        self.user = User.objects.create(username="Stein")
+        self.player = Player.objects.create(user=self.user, budget=1000, in_roster=True)
+
+    def test_opening_a_round_snapshots_current_budgets_once(self):
+        services.snapshot_round_budgets(0)
+        self.assertEqual(BudgetSnapshot.objects.count(), 1)
+        snap = BudgetSnapshot.objects.get()
+        # Full cast is present at the starting budget.
+        self.assertEqual(snap.budgets["Stein"], 1000)
+        self.assertIn("Niels", snap.budgets)
+
+        # Spend some coins, then re-open the same round: the start-of-round figure
+        # is frozen, not overwritten.
+        self.player.budget = 700
+        self.player.save(update_fields=["budget"])
+        services.snapshot_round_budgets(0)
+        self.assertEqual(BudgetSnapshot.objects.count(), 1)
+        self.assertEqual(BudgetSnapshot.objects.get().budgets["Stein"], 1000)
+
+    def test_each_round_captures_the_budget_at_its_start(self):
+        services.snapshot_round_budgets(0)  # start of round 1: 1000
+        self.player.budget = 800
+        self.player.save(update_fields=["budget"])
+        services.snapshot_round_budgets(1)  # start of round 2: 800
+
+        history = services.build_state(self.user)["budget_history"]
+        self.assertEqual([h["round"] for h in history], [1, 2])
+        self.assertEqual(history[0]["budgets"]["Stein"], 1000)
+        self.assertEqual(history[1]["budgets"]["Stein"], 800)
+
+    def test_reset_clears_budget_snapshots(self):
+        services.snapshot_round_budgets(0)
+        self.assertTrue(BudgetSnapshot.objects.exists())
+        services.reset_game()
+        self.assertFalse(BudgetSnapshot.objects.exists())

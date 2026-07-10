@@ -151,6 +151,20 @@ export interface AdminPurchase {
   coins: number;
 }
 
+// A shot/slok I landed on the slot machine, awaiting the quizmaster's
+// confirmation that I've drunk it. While one is pending my machine is locked.
+export interface SlotLock {
+  kind: GiftKind;
+}
+
+// Admin-side view of a slot drink awaiting confirmation.
+export interface AdminSlotDrink {
+  id: number;
+  username: string;
+  kind: GiftKind;
+  cost: number;
+}
+
 // One line of the admin-only live activity feed (bets / minigames / store).
 export type ActivityKind = "bet" | "minigame" | "purchase" | "gift";
 export interface ActivityEvent {
@@ -179,6 +193,9 @@ export interface GameState {
     // Store: drinks handed to me + my coin pack awaiting confirmation.
     gifts_received: Gift[];
     pending_purchase: PendingPurchase | null;
+    // A slot drink awaiting the quizmaster's OK, which locks my slot machine
+    // until confirmed; null when the machine is free to spin.
+    slot_lock: SlotLock | null;
     // A live crash round to resume (server-measured elapsed), else null.
     crash_round: CrashRoundState | null;
   };
@@ -186,6 +203,9 @@ export interface GameState {
   score_history: Array<Record<string, number>>;
   roster: string[];
   budgets: Record<string, number>;
+  // Coins entering each round that has started (1-based round number), for the
+  // budget-over-rounds graph. Empty until the first round opens.
+  budget_history: Array<{ round: number; budgets: Record<string, number> }>;
   markets: Market[];
   challenge: {
     statuses: Record<string, ChallengeStatus>;
@@ -194,6 +214,8 @@ export interface GameState {
   answers: AdminAnswer[];
   // Coin packs awaiting admin confirmation (admin only; [] for players).
   pending_purchases: AdminPurchase[];
+  // Slot drinks awaiting admin confirmation (admin only; [] for players).
+  pending_slot_drinks: AdminSlotDrink[];
   // Live feed of player actions (admin only; [] for players).
   activity: ActivityEvent[];
   // The fixed cast and who's currently online (for the admin presence panel).
@@ -448,6 +470,17 @@ export function adminDeclareChallenge(
   });
 }
 
+// Commit a batch of drafted challenge verdicts at once. Only now are the
+// statuses made official and any pending challenge bets settled.
+export function adminSaveChallenges(
+  statuses: Record<string, ChallengeStatus>
+): Promise<GameState> {
+  return request<GameState>("/api/admin/challenge/save/", {
+    method: "POST",
+    body: { statuses },
+  });
+}
+
 export function adminReset(): Promise<GameState> {
   return request<GameState>("/api/admin/reset/", { method: "POST", body: {} });
 }
@@ -455,6 +488,15 @@ export function adminReset(): Promise<GameState> {
 // Confirm a coin pack was paid via Tikkie and credit the coins.
 export function adminConfirmPurchase(id: number): Promise<GameState> {
   return request<GameState>("/api/admin/confirm-purchase/", {
+    method: "POST",
+    body: { id },
+  });
+}
+
+// Confirm a player has done the shot/slok they landed on the slot, unlocking
+// their machine.
+export function adminConfirmSlotDrink(id: number): Promise<GameState> {
+  return request<GameState>("/api/admin/confirm-slot-drink/", {
     method: "POST",
     body: { id },
   });

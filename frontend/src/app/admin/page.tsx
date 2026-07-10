@@ -297,7 +297,7 @@ export default function AdminPage() {
         quizHref="/admin"
         giftsCount={state.you.gifts_received?.length ?? 0}
         isAdmin
-        activityCount={state.pending_purchases?.length ?? 0}
+        activityCount={(state.pending_purchases?.length ?? 0) + (state.pending_slot_drinks?.length ?? 0)}
       />
     </div>
   );

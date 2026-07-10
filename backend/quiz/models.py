@@ -226,6 +226,22 @@ class ScoreSnapshot(models.Model):
         ordering = ["id"]
 
 
+class BudgetSnapshot(models.Model):
+    """One snapshot of every player's coins at the START of a round, for the
+    Tussenstand budget graph. Captured the first time a round is opened (see
+    services.snapshot_round_budgets), so it reflects all betting/minigame/store
+    activity up to that point — including the initial STARTING_BUDGET each at the
+    start of round 1. Keyed uniquely by round so re-visiting a round never
+    overwrites its start-of-round figure."""
+
+    round_index = models.IntegerField(unique=True)
+    budgets = models.JSONField()  # {username: coins}
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["round_index"]
+
+
 class Player(models.Model):
     """Betting-side profile: roster membership + coin budget. Non-admins only."""
 
@@ -319,6 +335,28 @@ class Gift(models.Model):
     kind = models.CharField(max_length=10, choices=KIND_CHOICES)
     acknowledged = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+
+class SlotDrink(models.Model):
+    """A physical drink (shot or slok) a player landed by matching three drink
+    symbols on the slot machine. Filed as pending the moment it's hit; a
+    quizmaster confirms it once the player has actually drunk. The player can't
+    spin again until it's confirmed (see services.spin_slot)."""
+
+    KIND_CHOICES = [(SLOT_SHOT, "Shot"), (SLOT_SIP, "Slok")]
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    STATUS_CHOICES = [(PENDING, "Pending"), (CONFIRMED, "Confirmed")]
+
+    player = models.ForeignKey(User, on_delete=models.CASCADE, related_name="slot_drinks")
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES)
+    cost = models.PositiveIntegerField()
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["created_at"]

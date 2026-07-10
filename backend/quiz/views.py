@@ -190,6 +190,8 @@ class AdvanceView(APIView):
         game.current_index = index
         game.entry_state = GameState.OPEN
         game.save(update_fields=["current_index", "entry_state"])
+        # Record everyone's coins entering this round (once) for the budget graph.
+        services.snapshot_round_budgets(index)
         return Response(services.build_state(request.user))
 
 
@@ -308,11 +310,31 @@ class ChallengeDeclareView(APIView):
         return Response(services.build_state(request.user))
 
 
+class ChallengeSaveView(APIView):
+    permission_classes = [IsQuizAdmin]
+
+    def post(self, request):
+        _, error = services.save_challenge_statuses(request.data.get("statuses"))
+        if error:
+            return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(services.build_state(request.user))
+
+
 class ConfirmPurchaseView(APIView):
     permission_classes = [IsQuizAdmin]
 
     def post(self, request):
         _, error = services.confirm_coin_purchase(request.data.get("id"))
+        if error:
+            return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(services.build_state(request.user))
+
+
+class ConfirmSlotDrinkView(APIView):
+    permission_classes = [IsQuizAdmin]
+
+    def post(self, request):
+        _, error = services.confirm_slot_drink(request.data.get("id"))
         if error:
             return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
         return Response(services.build_state(request.user))

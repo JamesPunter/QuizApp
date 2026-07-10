@@ -29,6 +29,8 @@ from .models import (
     ROULETTE_RED_NUMBERS,
     SLOT_COSTS,
     SLOT_MULTIPLIERS,
+    SLOT_SHOT,
+    SLOT_SIP,
     SLOT_SYMBOLS,
     SLOT_WIN_PROBABILITY,
     STARTING_BUDGET,
@@ -36,6 +38,7 @@ from .models import (
     ActivityEvent,
     Answer,
     Bet,
+    BudgetSnapshot,
     CoinPurchase,
     CrashRound,
     GameState,
@@ -47,6 +50,7 @@ from .models import (
     Question,
     Score,
     ScoreSnapshot,
+    SlotDrink,
     is_admin_username,
     resolve_contestant,
 )
@@ -129,6 +133,28 @@ def current_scores():
     for s in Score.objects.select_related("player"):
         scores[s.player.username] = s.points
     return scores
+
+
+def current_budgets():
+    """Every player's coins, defaulting to STARTING_BUDGET for the full cast so the
+    budget list and graph show everyone from the start — even before anyone has
+    logged in or placed a bet."""
+    budgets = {name: STARTING_BUDGET for name in PLAYER_USERNAMES}
+    for p in Player.objects.select_related("user"):
+        if p.user.username in budgets:
+            budgets[p.user.username] = p.budget
+    return budgets
+
+
+def snapshot_round_budgets(round_index):
+    """Record every player's coins entering `round_index`, once. Called when the
+    admin opens a round; the first open wins, so re-visiting an earlier round
+    never overwrites its start-of-round figure (see BudgetSnapshot)."""
+    if round_index < 0:
+        return
+    BudgetSnapshot.objects.get_or_create(
+        round_index=round_index, defaults={"budgets": current_budgets()}
+    )
 
 
 def roster_usernames():
@@ -242,12 +268,14 @@ def build_state(user):
     history = [snap.scores for snap in ScoreSnapshot.objects.all()]
     roster = roster_usernames()
     present = set(present_usernames())
-    # Full cast at the starting budget, overlaid with each logged-in player's
-    # actual coins, so the Tussenstand budget list shows everyone from the start.
-    budgets = {name: STARTING_BUDGET for name in PLAYER_USERNAMES}
-    for p in Player.objects.select_related("user"):
-        if p.user.username in budgets:
-            budgets[p.user.username] = p.budget
+    # Current coins for the full cast (the Tussenstand budget ranking).
+    budgets = current_budgets()
+    # Coins entering each round that has started, for the budget-over-rounds graph.
+    # Round numbers are 1-based for display (round_index is the 0-based question).
+    budget_history = [
+        {"round": snap.round_index + 1, "budgets": snap.budgets}
+        for snap in BudgetSnapshot.objects.all()
+    ]
 
     markets = [
         {
@@ -276,6 +304,7 @@ def build_state(user):
     budget = None
     my_bets = []
     pending_purchase = None
+    slot_lock = None
     crash_round = None
     if not is_admin:
         player = Player.objects.filter(user=user).first()
@@ -284,6 +313,11 @@ def build_state(user):
         pp = CoinPurchase.objects.filter(buyer=user, status=CoinPurchase.PENDING).first()
         if pp:
             pending_purchase = {"id": pp.id, "coins": pp.coins}
+        # A drink hit on the slot that's still awaiting the quizmaster's OK: it
+        # locks this player's machine (the client disables Spin) until confirmed.
+        sd = SlotDrink.objects.filter(player=user, status=SlotDrink.PENDING).first()
+        if sd:
+            slot_lock = {"kind": sd.kind}
         # A live crash round the player can resume (e.g. after reopening the tab).
         # elapsed_ms is server-measured so the client's timer needs no clock sync.
         cr = CrashRound.objects.filter(player=user, active=True).order_by("-started_at").first()
@@ -304,11 +338,18 @@ def build_state(user):
     # Admin-only: the coin packs waiting to be confirmed paid, plus the live feed
     # of what players have been doing (bets / minigames / store).
     pending_purchases = []
+    pending_slot_drinks = []
     activity = []
     if is_admin:
         pending_purchases = [
             {"id": p.id, "username": p.buyer.username, "coins": p.coins}
             for p in CoinPurchase.objects.filter(status=CoinPurchase.PENDING).select_related("buyer")
+        ]
+        # Drinks landed on the slot, waiting for the quizmaster to confirm the
+        # player has drunk (shown alongside the coin-pack queue).
+        pending_slot_drinks = [
+            {"id": d.id, "username": d.player.username, "kind": d.kind, "cost": d.cost}
+            for d in SlotDrink.objects.filter(status=SlotDrink.PENDING).select_related("player")
         ]
         activity = recent_activity()
 
@@ -347,6 +388,9 @@ def build_state(user):
             # waiting on a quizmaster's confirmation.
             "gifts_received": gifts_received,
             "pending_purchase": pending_purchase,
+            # A slot drink awaiting the quizmaster's OK, which locks my slot
+            # machine until confirmed ({"kind": "shot"|"sip"}), else null.
+            "slot_lock": slot_lock,
             # A live crash round to resume (server-measured elapsed), else null.
             "crash_round": crash_round,
         },
@@ -354,6 +398,7 @@ def build_state(user):
         "score_history": history,
         "roster": roster,
         "budgets": budgets,
+        "budget_history": budget_history,
         "markets": markets,
         # Challenge bet: per-player admin verdicts + the parlay odds factor so
         # the client can preview payouts and disable already-decided players.
@@ -364,6 +409,8 @@ def build_state(user):
         "answers": admin_answers,
         # Coin packs awaiting confirmation (admin only; [] for players).
         "pending_purchases": pending_purchases,
+        # Slot drinks awaiting confirmation (admin only; [] for players).
+        "pending_slot_drinks": pending_slot_drinks,
         # Live feed of player actions (admin only; [] for players).
         "activity": activity,
         # The fixed cast + who's currently online, so admins can spot no-shows.
@@ -501,6 +548,11 @@ def spin_slot(user, cost):
     if is_admin_username(user.username):
         return None, "Beheerders kunnen niet spelen."
 
+    # A drink landed on an earlier spin locks the machine until a quizmaster
+    # confirms the player has actually drunk it (see confirm_slot_drink).
+    if SlotDrink.objects.filter(player=user, status=SlotDrink.PENDING).exists():
+        return None, "Doe eerst je drankje en laat de beheerder het bevestigen."
+
     try:
         cost = int(cost)
     except (TypeError, ValueError):
@@ -533,6 +585,11 @@ def spin_slot(user, cost):
 
     outcome = f"won {coins_won} coins" if coins_won else ("won een prijs" if win else "verloor")
     record_activity(user, ActivityEvent.MINIGAME, f"speelde de gokkast (inzet {cost}) en {outcome}")
+
+    # Three matching drink symbols is a physical reward: file it for a quizmaster
+    # to confirm, which locks this player's machine until they've drunk it.
+    if symbol in (SLOT_SHOT, SLOT_SIP):
+        SlotDrink.objects.create(player=user, kind=symbol, cost=cost)
 
     return {
         "reels": reels,
@@ -763,6 +820,22 @@ def confirm_coin_purchase(purchase_id):
     return purchase, None
 
 
+def confirm_slot_drink(drink_id):
+    """Admin: confirm a player has done the shot/slok they landed on the slot
+    machine, which unlocks their machine. Idempotent-ish: an already-confirmed
+    drink is rejected. Returns (drink, error)."""
+    drink = SlotDrink.objects.filter(id=drink_id).select_related("player").first()
+    if drink is None:
+        return None, "Onbekend drankje."
+    if drink.status == SlotDrink.CONFIRMED:
+        return None, "Dit drankje is al bevestigd."
+
+    drink.status = SlotDrink.CONFIRMED
+    drink.confirmed_at = timezone.now()
+    drink.save(update_fields=["status", "confirmed_at"])
+    return drink, None
+
+
 def give_drink(user, kind, recipient_name):
     """Spend coins to make another contestant drink. Returns (gift, error). The
     recipient can be any other player or a quizmaster; they get a notification."""
@@ -954,15 +1027,55 @@ def declare_challenge(username, status):
     return player, None
 
 
+def save_challenge_statuses(statuses):
+    """Persist a batch of admin challenge verdicts at once, then settle the
+    challenge bets a single time. Nothing is written (and no payout happens)
+    until this is called — the admin drafts verdicts client-side and commits
+    them here with the "save" button. `statuses` maps username -> status.
+    Validates every entry before writing any, so a bad payload is a no-op.
+    Returns (None, error)."""
+    if not isinstance(statuses, dict):
+        return None, "Ongeldige gegevens."
+    valid = (Player.CHALLENGE_PENDING, Player.CHALLENGE_COMPLETED, Player.CHALLENGE_FAILED)
+    resolved = {}
+    for username, verdict in statuses.items():
+        if verdict not in valid:
+            return None, "Ongeldige status."
+        name = resolve_contestant(username)
+        if name is None or is_admin_username(name):
+            return None, "Onbekende speler."
+        # Canonical name keys the map, so mixed-casing dupes collapse to one.
+        resolved[name] = verdict
+
+    for name, verdict in resolved.items():
+        user = User.objects.filter(username=name).first()
+        if user is None:
+            # A cast member who hasn't logged in has no account row yet. Pending
+            # is already the default for them, so there's nothing to store; only
+            # materialise the account (as login would) when there's a real
+            # verdict to record — e.g. to settle a bet placed on their name.
+            if verdict == Player.CHALLENGE_PENDING:
+                continue
+            user, _ = User.objects.get_or_create(username=name)
+        player, _ = Player.objects.get_or_create(user=user)
+        if player.challenge_status != verdict:
+            player.challenge_status = verdict
+            player.save(update_fields=["challenge_status"])
+    settle_challenge_bets()
+    return None, None
+
+
 def reset_game():
     """Wipe the quiz + betting game for a fresh start. Keeps the roster."""
     Answer.objects.all().delete()
     Mark.objects.all().delete()
     Score.objects.all().delete()
     ScoreSnapshot.objects.all().delete()
+    BudgetSnapshot.objects.all().delete()
     Bet.objects.all().delete()
     CoinPurchase.objects.all().delete()
     Gift.objects.all().delete()
+    SlotDrink.objects.all().delete()
     CrashRound.objects.all().delete()
     ActivityEvent.objects.all().delete()
     # Reset each player's coins and challenge verdict. The board always lists the

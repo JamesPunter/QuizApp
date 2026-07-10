@@ -115,7 +115,7 @@ export default function BetjePage() {
         quizHref={admin ? "/admin" : "/quiz"}
         giftsCount={state.you.gifts_received?.length ?? 0}
         isAdmin={admin}
-        activityCount={state.pending_purchases?.length ?? 0}
+        activityCount={(state.pending_purchases?.length ?? 0) + (state.pending_slot_drinks?.length ?? 0)}
       />
     </div>
   );

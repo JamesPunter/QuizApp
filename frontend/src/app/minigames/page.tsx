@@ -30,6 +30,7 @@ import {
   type GameState,
   type SlotSymbol,
   type SlotResult,
+  type SlotLock,
   type CrashStart,
   type CrashResult,
   type CrashRoundState,
@@ -117,7 +118,7 @@ export default function MinigamesPage() {
           subtitle="Drie gelijk wint"
           defaultOpen
         >
-          <SlotGame {...gameProps} />
+          <SlotGame {...gameProps} slotLock={state.you.slot_lock} />
         </GameShell>
 
         <GameShell
@@ -141,7 +142,7 @@ export default function MinigamesPage() {
         quizHref={admin ? "/admin" : "/quiz"}
         giftsCount={state.you.gifts_received?.length ?? 0}
         isAdmin={admin}
-        activityCount={state.pending_purchases?.length ?? 0}
+        activityCount={(state.pending_purchases?.length ?? 0) + (state.pending_slot_drinks?.length ?? 0)}
       />
     </div>
   );
@@ -160,8 +161,19 @@ const SYMBOLS: Record<SlotSymbol, { Icon: LucideIcon; label: string; reward: str
 const ALL_SYMBOLS = Object.keys(SYMBOLS) as SlotSymbol[];
 const randomSymbol = () => ALL_SYMBOLS[Math.floor(Math.random() * ALL_SYMBOLS.length)];
 
-function SlotGame({ admin, budget, realBudget, setBudgetOverride, setState }: GameProps) {
+function SlotGame({
+  admin,
+  budget,
+  realBudget,
+  setBudgetOverride,
+  setState,
+  slotLock,
+}: GameProps & { slotLock: SlotLock | null }) {
   const [cost, setCost] = useState<number>(SLOT_COSTS[0]);
+  // A drink landed on an earlier spin locks the machine until a quizmaster
+  // confirms it on the Activity page.
+  const locked = slotLock !== null;
+  const lockLabel = slotLock?.kind === "shot" ? "shotje" : "slokje";
   const [display, setDisplay] = useState<SlotSymbol[]>(["coin2x", "shot", "sip"]);
   const [reelSpinning, setReelSpinning] = useState<boolean[]>([false, false, false]);
   const [result, setResult] = useState<SlotResult | null>(null);
@@ -183,7 +195,7 @@ function SlotGame({ admin, budget, realBudget, setBudgetOverride, setState }: Ga
   useEffect(() => stopTicker, []);
 
   async function handleSpin() {
-    if (busy || admin) return;
+    if (busy || admin || locked) return;
     setError(null);
     setResult(null);
     setBusy(true);
@@ -267,6 +279,20 @@ function SlotGame({ admin, budget, realBudget, setBudgetOverride, setState }: Ga
 
       {admin ? (
         <p className="text-sm text-muted-foreground">Beheerders kunnen niet spelen.</p>
+      ) : locked && !busy ? (
+        // Hold the lock banner back until the reels have finished landing: the
+        // 1s poll can set slot_lock mid-spin, but `busy` stays true until the
+        // animation ends, so the drink message only shows once the roll is done.
+        <div className="flex w-full max-w-xs flex-col items-center gap-3">
+          <div className="flex items-center gap-2 rounded-lg bg-rose-100 px-4 py-3 text-center text-sm font-medium text-rose-800 dark:bg-rose-950/40 dark:text-rose-200">
+            {slotLock?.kind === "shot" ? (
+              <Martini className="h-5 w-5 shrink-0" />
+            ) : (
+              <Beer className="h-5 w-5 shrink-0" />
+            )}
+            Doe je {lockLabel}! De gokkast is op slot tot de beheerder het bevestigt.
+          </div>
+        </div>
       ) : (
         <div className="flex w-full max-w-xs flex-col items-center gap-5">
           <StakeSelector value={cost} onChange={setCost} budget={budget} disabled={busy} />
