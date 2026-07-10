@@ -77,6 +77,26 @@ export interface Settlement {
   lost_count: number;
 }
 
+// One individual "betje": a yes/no proposition about `subject` doing something
+// during the quiz. `odds` is the live decimal odds (initial_odds scaled by the
+// section multiplier, doubling by the final question). A bettor stakes coins
+// that it WILL happen; the admins later settle it yes/no.
+export interface IndividualBet {
+  key: string;
+  subject: string;
+  text: string;
+  initial_odds: number;
+  odds: number;
+  is_open: boolean;
+  is_settled: boolean;
+}
+
+export interface IndividualBets {
+  // Live odds multiplier (1× at the start, rising to 2× at the final question).
+  multiplier: number;
+  markets: IndividualBet[];
+}
+
 // The four slot-machine symbols; a spin wins only when all 3 reels match.
 export type SlotSymbol = "coin2x" | "coin3x" | "shot" | "sip" | "jackpot";
 
@@ -236,6 +256,9 @@ export interface GameState {
     // Coins paid to a player when their challenge is approved as completed.
     reward: number;
   };
+  // The eight individual "betjes" + the live odds multiplier. Players are shown
+  // every market except the one about themselves.
+  individual_bets: IndividualBets;
   answers: AdminAnswer[];
   // Coin packs awaiting admin confirmation (admin only; [] for players).
   pending_purchases: AdminPurchase[];
@@ -481,8 +504,17 @@ export function adminMarket(key: string, open: boolean): Promise<GameState> {
   });
 }
 
-export function adminSettle(key: string = QUIZ_WINNER_MARKET): Promise<GameState> {
-  return request<GameState>("/api/admin/settle/", { method: "POST", body: { key } });
+// Settle a market. `outcome` only applies to individual "betjes": true = the
+// proposition happened (backers win), false = it didn't (backers lose). It is
+// ignored for the winner/loser markets, which settle from the final scores.
+export function adminSettle(
+  key: string = QUIZ_WINNER_MARKET,
+  outcome?: boolean
+): Promise<GameState> {
+  return request<GameState>("/api/admin/settle/", {
+    method: "POST",
+    body: { key, outcome },
+  });
 }
 
 // The third end-of-quiz payout: hand out the coins each player earned for their

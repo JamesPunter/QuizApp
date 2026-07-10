@@ -34,6 +34,7 @@ from .models import (
     Score,
     ScoreSnapshot,
     SlotDrink,
+    individual_bet_by_key,
     rank_coin_rewards,
 )
 
@@ -227,6 +228,114 @@ class BettingMarketsTest(TestCase):
             Player.objects.get(user=self.users["Niels"]).challenge_status,
             Player.CHALLENGE_PENDING,
         )
+
+
+class IndividualBetsTest(TestCase):
+    """The eight yes/no "betjes": odds that double over the quiz, yes/no
+    settlement, and unlimited re-betting on one market."""
+
+    def setUp(self):
+        self.users = {}
+        for name in ("Stein", "Niels", "Ivar"):
+            user = User.objects.create(username=name)
+            Player.objects.create(user=user, budget=1000, in_roster=True)
+            self.users[name] = user
+        self.admin = User.objects.create(username="James")
+        # Five questions, so the final question is index 4.
+        for i in range(1, 6):
+            Question.objects.create(order=i, type=Question.TEXT, text=f"Q{i}")
+
+    def budget(self, name):
+        return Player.objects.get(user=self.users[name]).budget
+
+    def _set_index(self, idx):
+        game = GameState.get()
+        game.current_index = idx
+        game.entry_state = GameState.OPEN
+        game.save()
+
+    def test_multiplier_rises_from_one_to_two(self):
+        self._set_index(-1)  # not started
+        self.assertEqual(services.individual_bet_multiplier(), 1.0)
+        self._set_index(0)  # first question
+        self.assertEqual(services.individual_bet_multiplier(), 1.0)
+        self._set_index(2)  # halfway (index 2 of 0..4)
+        self.assertEqual(services.individual_bet_multiplier(), 1.5)
+        self._set_index(4)  # final question
+        self.assertEqual(services.individual_bet_multiplier(), 2.0)
+
+    def test_odds_double_by_the_final_question(self):
+        cfg = individual_bet_by_key("ind_stein")  # initial odds 2×
+        self._set_index(0)
+        self.assertEqual(services.individual_bet_odds(cfg), 2.0)
+        self._set_index(4)
+        self.assertEqual(services.individual_bet_odds(cfg), 4.0)
+
+    def test_bet_locks_the_odds_at_placement(self):
+        self._set_index(0)
+        Market.objects.create(key="ind_stein", is_open=True)
+        bet, err = services.place_bet(self.users["Niels"], "ind_stein", "Stein", 100)
+        self.assertIsNone(err)
+        self.assertEqual(bet.odds, 2.0)  # placed early, low odds
+        self.assertEqual(self.budget("Niels"), 900)
+
+    def test_bet_requires_the_subject_as_selection(self):
+        self._set_index(0)
+        Market.objects.create(key="ind_stein", is_open=True)
+        bet, err = services.place_bet(self.users["Niels"], "ind_stein", "Niels", 100)
+        self.assertIsNone(bet)
+        self.assertIn("Ongeldige keuze", err)
+
+    def test_settle_yes_pays_the_backers(self):
+        self._set_index(4)
+        Market.objects.create(key="ind_stein", is_open=True)
+        odds = services.individual_bet_odds(individual_bet_by_key("ind_stein"))
+        bet, _ = services.place_bet(self.users["Niels"], "ind_stein", "Stein", 100)
+        result = services.settle_market("ind_stein", True)
+        self.assertEqual(result["winners"], ["Stein"])
+        bet.refresh_from_db()
+        self.assertEqual(bet.status, Bet.WON)
+        self.assertEqual(bet.payout, round(100 * odds))
+        self.assertEqual(self.budget("Niels"), 900 + round(100 * odds))
+
+    def test_settle_no_loses_the_backers(self):
+        self._set_index(0)
+        Market.objects.create(key="ind_stein", is_open=True)
+        bet, _ = services.place_bet(self.users["Niels"], "ind_stein", "Stein", 100)
+        result = services.settle_market("ind_stein", False)
+        self.assertEqual(result["winners"], [])
+        bet.refresh_from_db()
+        self.assertEqual(bet.status, Bet.LOST)
+        self.assertEqual(bet.payout, 0)
+        self.assertEqual(self.budget("Niels"), 900)  # stake stays lost
+
+    def test_multiple_bets_allowed_on_one_market(self):
+        self._set_index(0)
+        Market.objects.create(key="ind_stein", is_open=True)
+        services.place_bet(self.users["Niels"], "ind_stein", "Stein", 100)
+        bet2, err = services.place_bet(self.users["Niels"], "ind_stein", "Stein", 50)
+        self.assertIsNone(err)
+        self.assertIsNotNone(bet2)
+        self.assertEqual(
+            Bet.objects.filter(bettor=self.users["Niels"], market="ind_stein").count(), 2
+        )
+
+    def test_state_lists_all_eight_markets(self):
+        state = services.build_state(self.admin)
+        markets = state["individual_bets"]["markets"]
+        self.assertEqual(len(markets), 8)
+        self.assertIn("ind_tris", {m["key"] for m in markets})
+        # Every subject is a real cast member.
+        for m in markets:
+            self.assertIn(m["subject"], services.roster_usernames())
+
+    def test_reset_clears_individual_bets_and_markets(self):
+        self._set_index(0)
+        Market.objects.create(key="ind_stein", is_open=True)
+        services.place_bet(self.users["Niels"], "ind_stein", "Stein", 100)
+        services.reset_game()
+        self.assertFalse(Bet.objects.filter(market="ind_stein").exists())
+        self.assertFalse(Market.objects.get(key="ind_stein").is_open)
 
 
 class MinigameTest(TestCase):

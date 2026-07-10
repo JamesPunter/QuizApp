@@ -290,9 +290,10 @@ class SettleView(APIView):
     permission_classes = [IsQuizAdmin]
 
     def post(self, request):
-        # Backwards-compatible: no key settles the quiz-winner market.
+        # Backwards-compatible: no key settles the quiz-winner market. `outcome`
+        # only matters for individual "betjes" (did the proposition happen?).
         key = request.data.get("key") or QUIZ_WINNER_MARKET
-        result = services.settle_market(key)
+        result = services.settle_market(key, request.data.get("outcome"))
         state = services.build_state(request.user)
         state["settlement"] = result
         return Response(state)

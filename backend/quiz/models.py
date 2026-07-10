@@ -61,6 +61,41 @@ CHALLENGE_ODDS_FACTOR = 1.8
 # Player.challenge_reward_paid so re-toggling the verdict never pays twice.
 CHALLENGE_COMPLETION_REWARD = 500
 
+# --- Individual "betjes" -----------------------------------------------------
+# Eight yes/no proposition bets, each about one player doing something during the
+# quiz. A bettor stakes coins that the proposition WILL happen at the market's
+# current odds; the admins later declare whether it did (see
+# services.settle_individual_bet). Odds start at `initial_odds` and rise linearly
+# to INDIVIDUAL_BET_FINAL_MULTIPLIER× that by the final question (see
+# services.individual_bet_multiplier). A player is never shown the bet about
+# themselves. Each market is opened/closed for betting by the admins
+# independently, and players may place as many bets on one as they like.
+# `key` is the Market key; `subject` must be a canonical PLAYER_USERNAMES name.
+INDIVIDUAL_BETS = [
+    {"key": "ind_stein", "subject": "Stein", "text": "Stein doet 2x of meer een goose step", "initial_odds": 2},
+    {"key": "ind_ivar", "subject": "Ivar", "text": "Ivar zegt het n-woord 5x of meer", "initial_odds": 2},
+    {"key": "ind_tris", "subject": "Tris", "text": "Tristan gaat kotta tijdens de quiz", "initial_odds": 10},
+    {"key": "ind_niels", "subject": "Niels", "text": "Niels laat vrijwillig zijn dop zien", "initial_odds": 8},
+    {"key": "ind_max", "subject": "Max", "text": "Max belt maud1 of maud2", "initial_odds": 6},
+    {"key": "ind_matta", "subject": "Matta", "text": "Matta vergokt al zijn coins en moet bijkopen", "initial_odds": 3},
+    {"key": "ind_levi", "subject": "Levi", "text": "Levi zoent iemand op de mond met consent", "initial_odds": 3},
+    {"key": "ind_sep", "subject": "Sep", "text": "Sep zet 3x of meer een snabba tijdens de quiz", "initial_odds": 3},
+]
+
+INDIVIDUAL_BET_KEYS = {b["key"] for b in INDIVIDUAL_BETS}
+
+# Individual-bet odds double over the course of the quiz: 1× the initial odds at
+# the start, this multiple at the final question.
+INDIVIDUAL_BET_FINAL_MULTIPLIER = 2.0
+
+
+def individual_bet_by_key(key):
+    """The individual-bet config for a Market key, or None if it isn't one."""
+    for b in INDIVIDUAL_BETS:
+        if b["key"] == key:
+            return b
+    return None
+
 # --- Minigames: slot machine -------------------------------------------------
 # The slot has 3 reels. A spin wins only when all 3 reels land on the same
 # symbol; the matched symbol decides the reward. The two coin symbols pay the

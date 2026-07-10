@@ -23,6 +23,8 @@ from .models import (
     CRASH_HOUSE_EDGE,
     CRASH_MAX_MULTIPLIER,
     GIFT_SHOT,
+    INDIVIDUAL_BETS,
+    INDIVIDUAL_BET_FINAL_MULTIPLIER,
     MINIGAME_COSTS,
     QUIZ_LOSER_MARKET,
     QUIZ_WINNER_MARKET,
@@ -56,6 +58,7 @@ from .models import (
     Score,
     ScoreSnapshot,
     SlotDrink,
+    individual_bet_by_key,
     is_admin_username,
     rank_coin_rewards,
     resolve_contestant,
@@ -183,13 +186,68 @@ def quiz_loser_odds():
     return compute_quiz_loser_odds(current_scores(), roster_usernames(), _questions_remaining())
 
 
+def individual_bet_multiplier():
+    """The live odds multiplier for the individual "betjes": 1.0 at the start of
+    the quiz, rising linearly to INDIVIDUAL_BET_FINAL_MULTIPLIER (2×) at the final
+    question, so every individual market's payout doubles by the end. Before the
+    quiz starts (no live question) it's 1.0."""
+    game = GameState.get()
+    total = Question.objects.count()
+    idx = game.current_index
+    if idx < 0 or total <= 1:
+        return 1.0
+    progress = min(max(idx / (total - 1), 0.0), 1.0)
+    return 1.0 + (INDIVIDUAL_BET_FINAL_MULTIPLIER - 1.0) * progress
+
+
+def individual_bet_odds(cfg, multiplier=None):
+    """Current decimal odds for one individual market: its initial odds scaled by
+    the live multiplier, rounded to 2 dp. Locked into each bet at placement time
+    via market_odds (below), so odds placed earlier in the quiz stay lower."""
+    if multiplier is None:
+        multiplier = individual_bet_multiplier()
+    return round(cfg["initial_odds"] * multiplier * 100) / 100
+
+
 def market_odds(market_key):
-    """Odds map shown on the board for a single-pick outcome market."""
+    """Odds map shown on the board for a single-pick outcome market. For an
+    individual "betje" this is `{subject: current odds}`, so a bet's only valid
+    selection is the subject and settlement pays via _settle_outcome_market."""
     if market_key == QUIZ_WINNER_MARKET:
         return quiz_winner_odds()
     if market_key == QUIZ_LOSER_MARKET:
         return quiz_loser_odds()
+    cfg = individual_bet_by_key(market_key)
+    if cfg is not None:
+        return {cfg["subject"]: individual_bet_odds(cfg)}
     return {}
+
+
+def individual_bets_state():
+    """The betje page's "Individuele betjes" payload: every proposition with its
+    subject, description, initial + current odds, and open/settled status. The
+    client hides the market whose subject is the viewer, and admins get the
+    open/close + settle controls."""
+    mult = individual_bet_multiplier()
+    rows = {
+        m.key: m
+        for m in Market.objects.filter(key__in=[c["key"] for c in INDIVIDUAL_BETS])
+    }
+    markets = []
+    for c in INDIVIDUAL_BETS:
+        m = rows.get(c["key"])
+        markets.append(
+            {
+                "key": c["key"],
+                "subject": c["subject"],
+                "text": c["text"],
+                "initial_odds": c["initial_odds"],
+                "odds": individual_bet_odds(c, mult),
+                "is_open": bool(m.is_open) if m else False,
+                "is_settled": bool(m.is_settled) if m else False,
+            }
+        )
+    return {"multiplier": round(mult * 100) / 100, "markets": markets}
 
 
 def challenge_statuses():
@@ -430,6 +488,9 @@ def build_state(user):
             # Coins a player is paid when their challenge is approved as completed.
             "reward": CHALLENGE_COMPLETION_REWARD,
         },
+        # Individual "betjes": the eight yes/no proposition markets + the live
+        # odds multiplier. The client hides the viewer's own market.
+        "individual_bets": individual_bets_state(),
         "answers": admin_answers,
         # Coin packs awaiting confirmation (admin only; [] for players).
         "pending_purchases": pending_purchases,
@@ -482,11 +543,15 @@ def place_bet(user, market_key, selection, amount):
         amount=amount,
         odds=odds[selection],
     )
-    record_activity(
-        user,
-        ActivityEvent.BET,
-        f"zette {amount} coins in op {selection} ({MARKET_LABELS.get(market_key, market_key)})",
-    )
+    cfg = individual_bet_by_key(market_key)
+    if cfg is not None:
+        activity_text = f"zette {amount} coins in op: {cfg['text']}"
+    else:
+        activity_text = (
+            f"zette {amount} coins in op {selection} "
+            f"({MARKET_LABELS.get(market_key, market_key)})"
+        )
+    record_activity(user, ActivityEvent.BET, activity_text)
     return bet, None
 
 
@@ -1106,12 +1171,27 @@ def settle_quiz_loser():
     return _settle_outcome_market(QUIZ_LOSER_MARKET, quiz_losers(current_scores()))
 
 
-def settle_market(market_key):
-    """Settle a single-pick outcome market by key (winner or loser)."""
+def settle_individual_bet(market_key, happened):
+    """Resolve an individual proposition market. `happened` True pays every open
+    bet (the subject did the thing), False loses them all. Idempotent — a settled
+    market is skipped."""
+    cfg = individual_bet_by_key(market_key)
+    if cfg is None:
+        return None
+    winners = [cfg["subject"]] if happened else []
+    return _settle_outcome_market(market_key, winners)
+
+
+def settle_market(market_key, happened=None):
+    """Settle a single-pick market by key. `happened` only applies to individual
+    "betjes" (True = it happened → backers win, False = it didn't → backers
+    lose); it's ignored for the winner/loser markets, which settle from scores."""
     if market_key == QUIZ_WINNER_MARKET:
         return settle_quiz_winner()
     if market_key == QUIZ_LOSER_MARKET:
         return settle_quiz_loser()
+    if individual_bet_by_key(market_key) is not None:
+        return settle_individual_bet(market_key, bool(happened))
     return None
 
 

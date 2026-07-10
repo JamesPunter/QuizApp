@@ -8,6 +8,7 @@ import {
   Trophy,
   TrendingDown,
   Target,
+  Dices,
   Lock,
   LockOpen,
   Check,
@@ -27,11 +28,13 @@ import {
   QUIZ_LOSER_MARKET,
   CHALLENGE_MARKET,
   adminMarket,
+  adminSettle,
   placeBet,
   placeChallengeBet,
   releaseName,
   type Bet,
   type GameState,
+  type IndividualBet,
   type Market,
 } from "@/lib/api";
 
@@ -108,6 +111,13 @@ export default function BetjePage() {
         />
 
         <ChallengeMarket
+          state={state}
+          setState={setState}
+          admin={admin}
+          username={username}
+        />
+
+        <IndividualBetsSection
           state={state}
           setState={setState}
           admin={admin}
@@ -534,6 +544,226 @@ function ChallengeMarket({ state, setState, admin, username }: ChallengeMarketPr
         ) : null)
       )}
     </MarketShell>
+  );
+}
+
+// --- Individual "betjes" ----------------------------------------------------
+
+interface IndividualBetsSectionProps {
+  state: GameState;
+  setState: (s: GameState) => void;
+  admin: boolean;
+  username: string;
+}
+
+function IndividualBetsSection({
+  state,
+  setState,
+  admin,
+  username,
+}: IndividualBetsSectionProps) {
+  const [collapsed, setCollapsed] = useState(true);
+
+  const all = state.individual_bets?.markets ?? [];
+  // A player never sees the bet about themselves; admins see all eight.
+  const markets = admin ? all : all.filter((m) => m.subject !== username);
+  const multiplier = state.individual_bets?.multiplier ?? 1;
+
+  return (
+    <section className="w-full max-w-md rounded-xl border bg-card">
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        aria-expanded={!collapsed}
+        className="flex w-full items-center justify-between gap-2 p-4 text-left"
+      >
+        <div className="flex items-center gap-2">
+          <Dices className="h-5 w-5 text-primary" />
+          <h2 className="text-lg font-semibold">Individuele betjes</h2>
+        </div>
+        <ChevronDown
+          className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform ${
+            collapsed ? "" : "rotate-180"
+          }`}
+        />
+      </button>
+      {!collapsed && (
+        <div className="px-4 pb-4">
+          <p className="mb-3 text-xs text-muted-foreground">
+            Wed of een speler iets flikt tijdens de quiz. De odds stijgen tot 2× tegen de laatste
+            vraag — nu {multiplier.toFixed(2)}×. Je mag zo vaak inzetten als je wilt.
+          </p>
+          {markets.length === 0 ? (
+            <p className="text-sm italic text-muted-foreground">Nog geen betjes beschikbaar.</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {markets.map((m) => (
+                <IndividualMarketCard
+                  key={m.key}
+                  market={m}
+                  state={state}
+                  setState={setState}
+                  admin={admin}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function IndividualMarketCard({
+  market,
+  state,
+  setState,
+  admin,
+}: {
+  market: IndividualBet;
+  state: GameState;
+  setState: (s: GameState) => void;
+  admin: boolean;
+}) {
+  const [amount, setAmount] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const { key, subject, text, odds, is_open: marketOpen, is_settled: settled } = market;
+  const amtNum = Math.floor(Number(amount));
+  const potential = odds && amtNum > 0 ? Math.round(amtNum * odds) : 0;
+  const myBets = state.you.my_bets.filter((b) => b.market === key);
+
+  async function toggleMarket() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      setState(await adminMarket(key, !marketOpen));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function settle(happened: boolean) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      setState(await adminSettle(key, happened));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePlaceBet(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!Number.isFinite(amtNum) || amtNum <= 0) {
+      setError("Voer een bedrag groter dan 0 in.");
+      return;
+    }
+    setBusy(true);
+    try {
+      // The only outcome to back is "it happens"; the selection is the subject.
+      setState(await placeBet(key, subject, amtNum));
+      setAmount("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kon de inzet niet plaatsen.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-card p-3">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm font-medium leading-snug">{text}</p>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className="rounded-md bg-muted px-2 py-0.5 text-sm font-semibold tabular-nums">
+            {odds.toFixed(2)}×
+          </span>
+          <MarketStatusBadge settled={settled} open={marketOpen} />
+        </div>
+      </div>
+
+      {admin ? (
+        settled ? (
+          <p className="mt-2 text-xs text-muted-foreground">Afgerekend.</p>
+        ) : (
+          <div className="mt-3 flex flex-col gap-2">
+            <MarketToggle open={marketOpen} busy={busy} onToggle={toggleMarket} />
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => settle(true)}
+                disabled={busy}
+                className="flex-1 gap-1.5 border-green-300 text-green-700 hover:bg-green-50"
+              >
+                <CheckCircle className="h-4 w-4" />
+                Ja, gebeurd
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => settle(false)}
+                disabled={busy}
+                className="flex-1 gap-1.5 border-red-300 text-red-700 hover:bg-red-50"
+              >
+                <XCircle className="h-4 w-4" />
+                Niet gebeurd
+              </Button>
+            </div>
+          </div>
+        )
+      ) : settled ? (
+        <div className="mt-2 flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+          <Lock className="h-3.5 w-3.5" />
+          Afgerekend.
+        </div>
+      ) : marketOpen ? (
+        <form onSubmit={handlePlaceBet} className="mt-3 flex flex-col gap-2">
+          <div className="flex gap-2">
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              step={1}
+              placeholder="Bedrag"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+            <Button type="submit" className="shrink-0" disabled={busy}>
+              Zet in
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {amtNum > 0
+              ? `Zet ${amtNum} in — win ${potential} coins (incl. inzet) als dit gebeurt.`
+              : "Voer een bedrag in dat je erop wilt zetten."}
+          </p>
+          {error && <p className="text-xs text-red-500">{error}</p>}
+        </form>
+      ) : (
+        <p className="mt-2 text-xs italic text-muted-foreground">
+          Nog niet open om op te wedden.
+        </p>
+      )}
+
+      {myBets.length > 0 && (
+        <ul className="mt-3 flex flex-col gap-1.5">
+          {myBets.map((b) => (
+            <li
+              key={b.id}
+              className="flex items-center justify-between rounded-lg border bg-card px-3 py-2 text-xs"
+            >
+              <span className="text-muted-foreground">@ {b.odds.toFixed(2)}×</span>
+              <span className="flex items-center gap-2">
+                <span className="tabular-nums text-muted-foreground">{b.amount}</span>
+                <BetStatusBadge bet={b} />
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
