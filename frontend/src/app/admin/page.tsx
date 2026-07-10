@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   LogOut,
   ShieldCheck,
-  ChevronDown,
   ChevronRight,
   Play,
   RotateCcw,
@@ -16,7 +15,6 @@ import {
   Coins,
   Trophy,
   TrendingDown,
-  Target,
 } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { Button } from "@/components/ui/button";
@@ -26,14 +24,12 @@ import {
   QUIZ_LOSER_MARKET,
   adminAdvance,
   adminClose,
-  adminDeclareChallenge,
   adminFinalize,
   adminMark,
   adminMarkBonus,
   adminReset,
   adminSettle,
   releaseName,
-  type ChallengeStatus,
   type GameState,
   type Market,
   type Settlement,
@@ -295,17 +291,14 @@ export default function AdminPage() {
           </>
         ) : null}
 
-        {!isWaiting && (
-          <ChallengePanel
-            roster={state.roster}
-            statuses={state.challenge.statuses}
-            busy={busy}
-            onDeclare={(username, status) => run(() => adminDeclareChallenge(username, status))}
-          />
-        )}
       </main>
 
-      <BottomNav quizHref="/admin" />
+      <BottomNav
+        quizHref="/admin"
+        giftsCount={state.you.gifts_received?.length ?? 0}
+        isAdmin
+        activityCount={state.pending_purchases?.length ?? 0}
+      />
     </div>
   );
 }
@@ -416,82 +409,6 @@ function PayoutMarket({
             Inzetten uitbetalen
           </Button>
         </>
-      )}
-    </div>
-  );
-}
-
-function ChallengePanel({
-  roster,
-  statuses,
-  busy,
-  onDeclare,
-}: {
-  roster: string[];
-  statuses: Record<string, ChallengeStatus>;
-  busy: boolean;
-  onDeclare: (username: string, status: ChallengeStatus) => void;
-}) {
-  const [collapsed, setCollapsed] = useState(false);
-  if (roster.length === 0) return null;
-  return (
-    <div className="w-full max-w-md rounded-xl border bg-card">
-      <button
-        type="button"
-        onClick={() => setCollapsed((c) => !c)}
-        aria-expanded={!collapsed}
-        className="flex w-full items-center justify-between gap-2 p-4 text-left"
-      >
-        <div className="flex items-center gap-2">
-          <Target className="h-5 w-5 text-primary" />
-          <h3 className="font-semibold">Challenges</h3>
-        </div>
-        <ChevronDown
-          className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform ${
-            collapsed ? "" : "rotate-180"
-          }`}
-        />
-      </button>
-      {!collapsed && (
-      <div className="flex flex-col gap-1.5 px-4 pb-4">
-        {roster.map((name) => {
-          const status = statuses[name] ?? "pending";
-          return (
-            <div
-              key={name}
-              className="flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm"
-            >
-              <span className="flex-1 truncate font-medium">{name}</span>
-              <div className="flex shrink-0 gap-1.5">
-                <button
-                  onClick={() => onDeclare(name, "completed")}
-                  disabled={busy}
-                  aria-label={`${name} challenge gehaald`}
-                  className={`flex h-11 w-11 items-center justify-center rounded-lg transition-colors ${
-                    status === "completed"
-                      ? "bg-green-500 text-white"
-                      : "border text-muted-foreground hover:bg-green-50 active:bg-green-100"
-                  }`}
-                >
-                  <CheckCircle className="h-5 w-5" />
-                </button>
-                <button
-                  onClick={() => onDeclare(name, "failed")}
-                  disabled={busy}
-                  aria-label={`${name} challenge mislukt`}
-                  className={`flex h-11 w-11 items-center justify-center rounded-lg transition-colors ${
-                    status === "failed"
-                      ? "bg-red-500 text-white"
-                      : "border text-muted-foreground hover:bg-red-50 active:bg-red-100"
-                  }`}
-                >
-                  <XCircle className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
       )}
     </div>
   );

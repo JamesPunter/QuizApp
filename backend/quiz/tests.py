@@ -7,15 +7,21 @@ These cover the two markets added on top of "Wie wint de quiz?":
   - challenge   ("Wie haalt zijn challenge?") — the per-bettor parlay.
 """
 
+from datetime import timedelta
+from unittest import mock
+
 from django.contrib.auth.models import User
 from django.test import TestCase
+from django.utils import timezone
 
 from . import services
 from .models import (
     CHALLENGE_MARKET,
     QUIZ_LOSER_MARKET,
     QUIZ_WINNER_MARKET,
+    ActivityEvent,
     Bet,
+    CrashRound,
     GameState,
     Mark,
     Market,
@@ -131,6 +137,115 @@ class BettingMarketsTest(TestCase):
         )
 
 
+class MinigameTest(TestCase):
+    """Crash and roulette both charge the stake up front and settle instantly."""
+
+    def setUp(self):
+        self.user = User.objects.create(username="Stein")
+        Player.objects.create(user=self.user, budget=1000, in_roster=True)
+        self.admin = User.objects.create(username="James")
+
+    def budget(self):
+        return Player.objects.get(user=self.user).budget
+
+    # --- Crash --------------------------------------------------------------
+
+    def _age_round(self, seconds):
+        """Backdate the player's live round so `seconds` appear to have passed."""
+        round = CrashRound.objects.filter(player=self.user, active=True).latest("started_at")
+        CrashRound.objects.filter(pk=round.pk).update(
+            started_at=timezone.now() - timedelta(seconds=seconds)
+        )
+        return round
+
+    def test_crash_start_charges_the_stake_and_opens_a_round(self):
+        result, err = services.start_crash(self.user, 100)
+        self.assertIsNone(err)
+        self.assertEqual(result["active"], True)
+        self.assertEqual(self.budget(), 900)  # stake gone up front
+        self.assertTrue(CrashRound.objects.filter(player=self.user, active=True).exists())
+        # The crash point rides back so the client can animate the crash.
+        self.assertGreaterEqual(result["crash_point"], 1.0)
+
+    def test_crash_cashout_before_the_crash_banks_the_multiplier(self):
+        # A generous crash point (well above where we cash out) guarantees a win.
+        with mock.patch("quiz.services.random.random", return_value=0.001):
+            services.start_crash(self.user, 100)
+        self._age_round(1.5)  # ~2× on the doubling-every-1.5s curve
+
+        result, err = services.cashout_crash(self.user)
+        self.assertIsNone(err)
+        self.assertTrue(result["win"])
+        self.assertGreaterEqual(result["multiplier"], 2.0)
+        self.assertEqual(result["coins_won"], int(100 * result["multiplier"]))
+        self.assertEqual(self.budget(), 900 + result["coins_won"])
+        # Round is closed afterwards.
+        self.assertFalse(CrashRound.objects.filter(player=self.user, active=True).exists())
+
+    def test_crash_cashout_after_the_crash_busts(self):
+        # random ~1 pushes the crash point down to an instant bust at 1.00×.
+        with mock.patch("quiz.services.random.random", return_value=0.999):
+            services.start_crash(self.user, 100)
+        self._age_round(1.0)  # already past a 1.00× crash
+
+        result, err = services.cashout_crash(self.user)
+        self.assertIsNone(err)
+        self.assertFalse(result["win"])
+        self.assertEqual(result["coins_won"], 0)
+        self.assertEqual(result["crash_point"], 1.0)
+        self.assertEqual(self.budget(), 900)  # stake stays lost
+
+    def test_crash_cashout_without_a_round_errors(self):
+        result, err = services.cashout_crash(self.user)
+        self.assertIsNone(result)
+        self.assertIn("actieve ronde", err)
+
+    def test_crash_starting_again_forfeits_the_open_round(self):
+        services.start_crash(self.user, 100)
+        services.start_crash(self.user, 50)
+        self.assertEqual(
+            CrashRound.objects.filter(player=self.user, active=True).count(), 1
+        )
+        self.assertEqual(self.budget(), 1000 - 100 - 50)  # both stakes charged
+
+    def test_crash_rejects_bad_stake_and_admins(self):
+        self.assertIsNone(services.start_crash(self.user, 33)[0])
+        self.assertIsNone(services.start_crash(self.admin, 100)[0])
+        self.assertEqual(self.budget(), 1000)
+
+    # --- Roulette -----------------------------------------------------------
+
+    def test_roulette_red_bet_pays_double_on_red(self):
+        with mock.patch("quiz.services.random.randint", return_value=1):  # 1 is red
+            result, err = services.play_roulette(self.user, 100, "red")
+        self.assertIsNone(err)
+        self.assertEqual(result["color"], "red")
+        self.assertTrue(result["win"])
+        self.assertEqual(result["coins_won"], 200)
+        self.assertEqual(self.budget(), 1100)
+
+    def test_roulette_zero_busts_even_money_bets(self):
+        with mock.patch("quiz.services.random.randint", return_value=0):
+            result, err = services.play_roulette(self.user, 100, "red")
+        self.assertIsNone(err)
+        self.assertEqual(result["color"], "green")
+        self.assertFalse(result["win"])
+        self.assertEqual(self.budget(), 900)
+
+    def test_roulette_green_straight_pays_36x(self):
+        with mock.patch("quiz.services.random.randint", return_value=0):
+            result, err = services.play_roulette(self.user, 100, "green")
+        self.assertIsNone(err)
+        self.assertTrue(result["win"])
+        self.assertEqual(result["coins_won"], 3600)
+        self.assertEqual(self.budget(), 1000 - 100 + 3600)
+
+    def test_roulette_rejects_unknown_bet(self):
+        result, err = services.play_roulette(self.user, 100, "purple")
+        self.assertIsNone(result)
+        self.assertEqual(self.budget(), 1000)
+
+
 class BonusScoringTest(TestCase):
     """A text_bonus question scores 2 (both correct), 1 (main only), or 0."""
 
@@ -162,3 +277,34 @@ class BonusScoringTest(TestCase):
         self.assertEqual(self._points("MainOnly"), 1)
         # A correct bonus never counts when the main answer is wrong.
         self.assertEqual(self._points("Wrong"), 0)
+
+
+class ActivityFeedTest(TestCase):
+    """Player actions log a line to the admin-only Activity feed."""
+
+    def setUp(self):
+        self.user = User.objects.create(username="Stein")
+        Player.objects.create(user=self.user, budget=1000, in_roster=True)
+        self.admin = User.objects.create(username="James")
+
+    def test_minigame_logs_an_event_visible_to_admins_only(self):
+        services.play_roulette(self.user, 100, "red")
+        self.assertEqual(ActivityEvent.objects.count(), 1)
+
+        event = ActivityEvent.objects.get()
+        self.assertEqual(event.user, self.user)
+        self.assertEqual(event.kind, ActivityEvent.MINIGAME)
+
+        # The admin poll carries the feed; a player's does not.
+        admin_state = services.build_state(self.admin)
+        self.assertEqual(len(admin_state["activity"]), 1)
+        self.assertEqual(admin_state["activity"][0]["username"], "Stein")
+
+        player_state = services.build_state(self.user)
+        self.assertEqual(player_state["activity"], [])
+
+    def test_reset_clears_the_activity_feed(self):
+        services.play_roulette(self.user, 50, "black")
+        self.assertTrue(ActivityEvent.objects.exists())
+        services.reset_game()
+        self.assertFalse(ActivityEvent.objects.exists())

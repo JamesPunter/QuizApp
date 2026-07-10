@@ -72,7 +72,7 @@ export default function QuizPage() {
             <XCircle className="h-16 w-16" />
             <p className="text-xl font-medium">Geen antwoord ingediend</p>
           </main>
-          <BottomNav />
+          <BottomNav giftsCount={state.you.gifts_received?.length ?? 0} />
         </div>
       );
     }
@@ -100,7 +100,7 @@ export default function QuizPage() {
             </>
           )}
         </main>
-        <BottomNav />
+        <BottomNav giftsCount={state.you.gifts_received?.length ?? 0} />
       </div>
     );
   }
@@ -159,7 +159,7 @@ export default function QuizPage() {
         ) : null}
       </main>
 
-      <BottomNav />
+      <BottomNav giftsCount={state.you.gifts_received?.length ?? 0} />
     </div>
   );
 }

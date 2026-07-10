@@ -192,7 +192,12 @@ export default function TussenstandPage() {
         )}
       </main>
 
-      <BottomNav quizHref={admin ? "/admin" : "/quiz"} />
+      <BottomNav
+        quizHref={admin ? "/admin" : "/quiz"}
+        giftsCount={state.you.gifts_received?.length ?? 0}
+        isAdmin={admin}
+        activityCount={state.pending_purchases?.length ?? 0}
+      />
     </div>
   );
 }

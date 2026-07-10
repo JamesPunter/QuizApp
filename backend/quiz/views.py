@@ -95,6 +95,81 @@ class SlotSpinView(APIView):
         return Response(state)
 
 
+class CrashStartView(APIView):
+    """Minigame: begin a live crash round. Charges the stake and opens a round;
+    the response carries no crash point, so the client animates the climb blind
+    and the player taps CrashCashoutView to bank it."""
+
+    def post(self, request):
+        result, error = services.start_crash(request.user, request.data.get("cost"))
+        if error:
+            return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
+        state = services.build_state(request.user)
+        state["crash"] = result
+        return Response(state)
+
+
+class CrashCashoutView(APIView):
+    """Minigame: cash out the player's live crash round. Settled server-side on
+    the elapsed-time multiplier; the response's `crash` field reveals the
+    outcome (win + multiplier, or bust + crash point)."""
+
+    def post(self, request):
+        result, error = services.cashout_crash(request.user)
+        if error:
+            return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
+        state = services.build_state(request.user)
+        state["crash"] = result
+        return Response(state)
+
+
+class RoulettePlayView(APIView):
+    """Minigame: one roulette spin. Returns the fresh state plus a `roulette`
+    field carrying the landed number + colour so the client can animate it."""
+
+    def post(self, request):
+        result, error = services.play_roulette(
+            request.user, request.data.get("cost"), request.data.get("bet")
+        )
+        if error:
+            return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
+        state = services.build_state(request.user)
+        state["roulette"] = result
+        return Response(state)
+
+
+class BuyCoinsView(APIView):
+    """Store: file a pending coin pack (paid via Tikkie, confirmed by an admin)."""
+
+    def post(self, request):
+        _, error = services.request_coin_purchase(request.user)
+        if error:
+            return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(services.build_state(request.user))
+
+
+class GiveDrinkView(APIView):
+    """Store: spend coins to make another contestant drink."""
+
+    def post(self, request):
+        _, error = services.give_drink(
+            request.user, request.data.get("kind"), request.data.get("recipient")
+        )
+        if error:
+            return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(services.build_state(request.user))
+
+
+class AckGiftView(APIView):
+    """Store: dismiss one of my drink notifications."""
+
+    def post(self, request):
+        _, error = services.acknowledge_gift(request.user, request.data.get("id"))
+        if error:
+            return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(services.build_state(request.user))
+
+
 # --- Admin-facing ------------------------------------------------------------
 
 
@@ -228,6 +303,16 @@ class ChallengeDeclareView(APIView):
         player, error = services.declare_challenge(
             request.data.get("username"), request.data.get("status")
         )
+        if error:
+            return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(services.build_state(request.user))
+
+
+class ConfirmPurchaseView(APIView):
+    permission_classes = [IsQuizAdmin]
+
+    def post(self, request):
+        _, error = services.confirm_coin_purchase(request.data.get("id"))
         if error:
             return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
         return Response(services.build_state(request.user))

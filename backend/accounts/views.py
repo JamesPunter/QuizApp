@@ -9,6 +9,7 @@ from quiz import services
 from quiz.models import (
     ADMIN_USERNAMES_DISPLAY,
     PLAYER_USERNAMES,
+    check_contestant_password,
     is_admin_username,
     resolve_contestant,
 )
@@ -35,8 +36,9 @@ class RosterView(APIView):
 
 
 class ClaimView(APIView):
-    """Claim a contestant name. Rejected if that name is already live on another
-    device (one name = one device)."""
+    """Claim a contestant name with its account password. Rejected on a wrong
+    password, or if that name is already live on another device (one name = one
+    device)."""
 
     permission_classes = [AllowAny]
 
@@ -45,6 +47,12 @@ class ClaimView(APIView):
         if canonical is None:
             return Response(
                 {"detail": "Onbekende deelnemer."}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not check_contestant_password(canonical, request.data.get("password") or ""):
+            return Response(
+                {"detail": "Onjuist wachtwoord."},
+                status=status.HTTP_401_UNAUTHORIZED,
             )
 
         user, _ = User.objects.get_or_create(username=canonical)

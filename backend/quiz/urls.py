@@ -8,6 +8,12 @@ urlpatterns = [
     path("game/answer/", views.SubmitAnswerView.as_view(), name="game-answer"),
     path("bets/", views.PlaceBetView.as_view(), name="place-bet"),
     path("minigames/slot/", views.SlotSpinView.as_view(), name="minigame-slot"),
+    path("minigames/crash/start/", views.CrashStartView.as_view(), name="minigame-crash-start"),
+    path("minigames/crash/cashout/", views.CrashCashoutView.as_view(), name="minigame-crash-cashout"),
+    path("minigames/roulette/", views.RoulettePlayView.as_view(), name="minigame-roulette"),
+    path("store/buy-coins/", views.BuyCoinsView.as_view(), name="store-buy-coins"),
+    path("store/gift/", views.GiveDrinkView.as_view(), name="store-gift"),
+    path("store/gift/ack/", views.AckGiftView.as_view(), name="store-gift-ack"),
     # Admin-facing (finn / james only)
     path("admin/advance/", views.AdvanceView.as_view(), name="admin-advance"),
     path("admin/close/", views.CloseEntryView.as_view(), name="admin-close"),
@@ -17,5 +23,6 @@ urlpatterns = [
     path("admin/market/", views.MarketView.as_view(), name="admin-market"),
     path("admin/settle/", views.SettleView.as_view(), name="admin-settle"),
     path("admin/challenge/", views.ChallengeDeclareView.as_view(), name="admin-challenge"),
+    path("admin/confirm-purchase/", views.ConfirmPurchaseView.as_view(), name="admin-confirm-purchase"),
     path("admin/reset/", views.ResetView.as_view(), name="admin-reset"),
 ]

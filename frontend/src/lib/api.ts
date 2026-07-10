@@ -10,6 +10,21 @@ export const QUIZ_LOSER_MARKET = "quiz_loser";
 export const CHALLENGE_MARKET = "challenge";
 export const STARTING_BUDGET = 1000;
 
+// --- Store ------------------------------------------------------------------
+// One coin pack (bought with a real euro via Tikkie) and the two drink prices,
+// mirroring backend/quiz/models.py.
+export const COIN_PACK_COINS = 50;
+export const COIN_PACK_PRICE_EUR = 1;
+export const STORE_SHOT_PRICE = 200;
+export const STORE_SIP_PRICE = 35;
+
+// Tikkie payment links (real money). Set these to your own Tikkie request URLs;
+// override per-device via NEXT_PUBLIC_TIKKIE_* in .env.local.
+export const TIKKIE_COINS_URL =
+  process.env.NEXT_PUBLIC_TIKKIE_COINS_URL ?? "https://tikkie.me/pay/REPLACE-ME-1-EURO";
+export const TIKKIE_PUBQUIZ_URL =
+  process.env.NEXT_PUBLIC_TIKKIE_PUBQUIZ_URL ?? "https://tikkie.me/pay/REPLACE-ME-1000-EURO";
+
 // --- Types (mirror the build_state payload) ---------------------------------
 
 export type QuestionType = "text" | "multiple_choice" | "text_bonus";
@@ -75,6 +90,77 @@ export interface SlotResult {
 
 export const SLOT_COSTS = [50, 100, 200] as const;
 
+// All three minigames share the same stake tiers.
+export const MINIGAME_COSTS = SLOT_COSTS;
+
+// Crash: a live round whose multiplier climbs over time. Starting a round tells
+// the client where it crashes so it can animate the climb up to the crash (and
+// show it happen even after the player cashes out); the cash-out response
+// carries the banked/busted outcome.
+export interface CrashStart {
+  active: true;
+  cost: number;
+  crash_point: number;
+}
+export interface CrashResult {
+  win: boolean;
+  multiplier: number;
+  crash_point: number;
+  cost: number;
+  coins_won: number;
+}
+// A live crash round to resume, with server-measured elapsed time (no clock sync).
+export interface CrashRoundState {
+  cost: number;
+  elapsed_ms: number;
+  crash_point: number;
+}
+
+// Roulette: European single-zero wheel. Even-money outside bets pay 2×, the
+// green 0 straight bet pays 36×.
+export type RouletteBet = "red" | "black" | "even" | "odd" | "low" | "high" | "green";
+export type RouletteColor = "red" | "black" | "green";
+
+export interface RouletteResult {
+  number: number;
+  color: RouletteColor;
+  bet: RouletteBet;
+  win: boolean;
+  cost: number;
+  coins_won: number;
+}
+
+// A drink handed to you via the store (until you dismiss it).
+export type GiftKind = "shot" | "sip";
+export interface Gift {
+  id: number;
+  kind: GiftKind;
+  from: string;
+}
+
+// A coin pack of mine still waiting on a quizmaster's confirmation.
+export interface PendingPurchase {
+  id: number;
+  coins: number;
+}
+
+// Admin-side view of a coin pack awaiting confirmation.
+export interface AdminPurchase {
+  id: number;
+  username: string;
+  coins: number;
+}
+
+// One line of the admin-only live activity feed (bets / minigames / store).
+export type ActivityKind = "bet" | "minigame" | "purchase" | "gift";
+export interface ActivityEvent {
+  id: number;
+  username: string;
+  kind: ActivityKind;
+  text: string;
+  created_at: string;
+}
+
 export interface GameState {
   current_index: number;
   entry_state: EntryState;
@@ -90,6 +176,11 @@ export interface GameState {
     my_bonus_mark: boolean | null;
     budget: number | null;
     my_bets: Bet[];
+    // Store: drinks handed to me + my coin pack awaiting confirmation.
+    gifts_received: Gift[];
+    pending_purchase: PendingPurchase | null;
+    // A live crash round to resume (server-measured elapsed), else null.
+    crash_round: CrashRoundState | null;
   };
   scores: Record<string, number>;
   score_history: Array<Record<string, number>>;
@@ -101,6 +192,10 @@ export interface GameState {
     factor: number;
   };
   answers: AdminAnswer[];
+  // Coin packs awaiting admin confirmation (admin only; [] for players).
+  pending_purchases: AdminPurchase[];
+  // Live feed of player actions (admin only; [] for players).
+  activity: ActivityEvent[];
   // The fixed cast and who's currently online (for the admin presence panel).
   players: string[];
   present: string[];
@@ -108,6 +203,11 @@ export interface GameState {
   settlement?: Settlement | null;
   // Only present on the slot-spin response.
   spin?: SlotResult | null;
+  // Present on the crash start response (CrashStart) and cash-out response
+  // (CrashResult); the two are distinguished by the `win`/`active` fields.
+  crash?: CrashStart | CrashResult | null;
+  // Only present on the roulette-spin response.
+  roulette?: RouletteResult | null;
 }
 
 export interface ClaimResponse {
@@ -178,11 +278,12 @@ export function fetchLoginRoster(): Promise<LoginRoster> {
   return request<LoginRoster>("/api/auth/roster/", { auth: false });
 }
 
-// Claim a contestant name. Throws ApiError(409) if it's live on another device.
-export function claimName(name: string): Promise<ClaimResponse> {
+// Claim a contestant name with its account password. Throws ApiError(401) on a
+// wrong password, or ApiError(409) if it's live on another device.
+export function claimName(name: string, password: string): Promise<ClaimResponse> {
   return request<ClaimResponse>("/api/auth/claim/", {
     method: "POST",
-    body: { name },
+    body: { name, password },
     auth: false,
   });
 }
@@ -241,6 +342,53 @@ export function spinSlot(cost: number): Promise<GameState> {
     method: "POST",
     body: { cost },
   });
+}
+
+// Begin a live crash round for `cost` coins. Charges the stake; the returned
+// state carries only `crash: { active }` (the crash point stays server-side).
+export function startCrash(cost: number): Promise<GameState> {
+  return request<GameState>("/api/minigames/crash/start/", {
+    method: "POST",
+    body: { cost },
+  });
+}
+
+// Cash out the live crash round. The returned state carries the outcome under
+// `crash` (CrashResult) and reflects any winnings.
+export function cashoutCrash(): Promise<GameState> {
+  return request<GameState>("/api/minigames/crash/cashout/", {
+    method: "POST",
+    body: {},
+  });
+}
+
+// Spin the roulette wheel for `cost` coins on `bet`. The returned state carries
+// the landed number under `roulette` and reflects the new budget.
+export function playRoulette(cost: number, bet: RouletteBet): Promise<GameState> {
+  return request<GameState>("/api/minigames/roulette/", {
+    method: "POST",
+    body: { cost, bet },
+  });
+}
+
+// --- Store ------------------------------------------------------------------
+
+// File a pending coin pack (paid via Tikkie, confirmed by a quizmaster).
+export function requestCoinPurchase(): Promise<GameState> {
+  return request<GameState>("/api/store/buy-coins/", { method: "POST", body: {} });
+}
+
+// Spend coins to make `recipient` (a player or quizmaster) take a shot/sip.
+export function giveDrink(kind: GiftKind, recipient: string): Promise<GameState> {
+  return request<GameState>("/api/store/gift/", {
+    method: "POST",
+    body: { kind, recipient },
+  });
+}
+
+// Dismiss one of my drink notifications.
+export function ackGift(id: number): Promise<GameState> {
+  return request<GameState>("/api/store/gift/ack/", { method: "POST", body: { id } });
 }
 
 // --- Admin actions ----------------------------------------------------------
@@ -302,4 +450,12 @@ export function adminDeclareChallenge(
 
 export function adminReset(): Promise<GameState> {
   return request<GameState>("/api/admin/reset/", { method: "POST", body: {} });
+}
+
+// Confirm a coin pack was paid via Tikkie and credit the coins.
+export function adminConfirmPurchase(id: number): Promise<GameState> {
+  return request<GameState>("/api/admin/confirm-purchase/", {
+    method: "POST",
+    body: { id },
+  });
 }

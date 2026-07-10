@@ -54,6 +54,70 @@ SLOT_MULTIPLIERS = {SLOT_2X: 2, SLOT_3X: 3, SLOT_SHOT: 0, SLOT_SIP: 0}
 # time; we bias the roll so roughly half of spins land a prize.
 SLOT_WIN_PROBABILITY = 0.5
 
+# All three minigames share the same stake tiers.
+MINIGAME_COSTS = SLOT_COSTS
+
+# --- Minigames: crash --------------------------------------------------------
+# A live round climbs from 1.00x over time until it "crashes"; the player taps
+# Cash Out to bank stake * (current multiplier). Cash out before the crash and
+# you win, after it and the stake is lost. The crash point is committed when the
+# round starts (see CrashRound) and sent to the client so it can animate the
+# crash, but cash-outs are settled server-side on the server clock. It is drawn
+# so the house keeps a small edge: P(crash >= m) = (1 - CRASH_HOUSE_EDGE) / m.
+# The multiplier is a function of elapsed time, doubling every
+# CRASH_GROWTH_HALF_LIFE seconds.
+CRASH_HOUSE_EDGE = 0.05
+CRASH_MAX_MULTIPLIER = 50.0
+CRASH_GROWTH_HALF_LIFE = 1.5  # seconds for the multiplier to double
+
+# --- Minigames: roulette -----------------------------------------------------
+# European single-zero wheel (0-36). The outside even-money bets pay 2x the
+# stake; a straight bet on green 0 pays 36x. The zero is the house edge.
+ROULETTE_RED_NUMBERS = frozenset(
+    {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
+)
+# bet key -> total stake multiple returned on a win.
+ROULETTE_PAYOUTS = {
+    "red": 2,
+    "black": 2,
+    "even": 2,
+    "odd": 2,
+    "low": 2,
+    "high": 2,
+    "green": 36,
+}
+
+# --- Store -------------------------------------------------------------------
+# The store sells two kinds of thing:
+#  - coin packs, paid for with real money via a Tikkie link. The app can't see
+#    the euro land, so a purchase is filed as pending and a quizmaster confirms
+#    it, which credits the coins (see CoinPurchase).
+#  - drinks ("uitdelen"): the buyer spends coins to make another contestant (a
+#    player or a quizmaster) drink; the target gets an in-app notification
+#    (see Gift).
+COIN_PACK_COINS = 50
+COIN_PACK_PRICE_EUR = 1
+GIFT_SHOT = "shot"
+GIFT_SIP = "sip"
+STORE_DRINK_PRICES = {GIFT_SHOT: 200, GIFT_SIP: 35}
+
+
+# Per-account login passwords, keyed by canonical name. This is a LAN quiz on a
+# trusted network (see CORS_ALLOW_ALL_ORIGINS), so plaintext here is acceptable
+# for the threat model — it only stops the wrong friend from grabbing your name.
+CONTESTANT_PASSWORDS = {
+    "James": "Jimmy2002",
+    "Finn": "Yobbe2003",
+    "Stein": "Marit1234",
+    "Niels": "Celia3333",
+    "Ivar": "Barber2222",
+    "Tris": "Sude7890",
+    "Levi": "Tara2343",
+    "Max": "Sacha1122",
+    "Matta": "DT0099",  # Matthijs
+    "Sep": "Rippen5566",
+}
+
 
 def is_admin_username(username: str) -> bool:
     return (username or "").lower() in ADMIN_USERNAMES
@@ -63,6 +127,13 @@ def resolve_contestant(name: str):
     """Map any-casing input to the canonical contestant name, or None if the
     name isn't part of the fixed cast."""
     return _CONTESTANTS_BY_LOWER.get((name or "").strip().lower())
+
+
+def check_contestant_password(name: str, password: str) -> bool:
+    """True if `password` matches the account named `name` (canonical casing).
+    Case-sensitive on the password; the name must resolve to a known account."""
+    expected = CONTESTANT_PASSWORDS.get(name)
+    return expected is not None and password == expected
 
 
 class Question(models.Model):
@@ -215,3 +286,82 @@ class Bet(models.Model):
 
     class Meta:
         ordering = ["placed_at"]
+
+
+class CoinPurchase(models.Model):
+    """A real-money coin pack bought via Tikkie. Filed as pending when the player
+    taps the item; a quizmaster confirms it once the euro lands, which credits
+    the coins to the buyer (see services.confirm_coin_purchase)."""
+
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    STATUS_CHOICES = [(PENDING, "Pending"), (CONFIRMED, "Confirmed")]
+
+    buyer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="coin_purchases")
+    coins = models.IntegerField(default=COIN_PACK_COINS)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+
+class Gift(models.Model):
+    """A drink handed out via the store: the buyer spends coins to make the
+    recipient (a player or a quizmaster) drink. The recipient sees it as an
+    in-app notification until they acknowledge it."""
+
+    KIND_CHOICES = [(GIFT_SHOT, "Shot"), (GIFT_SIP, "Sip")]
+
+    sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name="gifts_sent")
+    recipient = models.ForeignKey(User, on_delete=models.CASCADE, related_name="gifts_received")
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES)
+    acknowledged = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+
+class ActivityEvent(models.Model):
+    """A log line of something a player did — placing a bet, playing a minigame,
+    or using the store. Shown live on the admin-only Activity page. Purely
+    informational: no game logic reads it back, and reset clears it."""
+
+    BET = "bet"
+    MINIGAME = "minigame"
+    PURCHASE = "purchase"
+    GIFT = "gift"
+    KIND_CHOICES = [
+        (BET, "Bet"),
+        (MINIGAME, "Minigame"),
+        (PURCHASE, "Purchase"),
+        (GIFT, "Gift"),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="activity_events")
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES)
+    # Human-readable Dutch description, built where the event is recorded.
+    text = models.CharField(max_length=300)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+
+class CrashRound(models.Model):
+    """One live crash round. The stake is charged when the round starts and the
+    crash_point is committed then (and sent to the client so it can animate the
+    crash). Cash-outs are settled server-side by comparing the elapsed-time
+    multiplier against crash_point (see services.cashout_crash)."""
+
+    player = models.ForeignKey(User, on_delete=models.CASCADE, related_name="crash_rounds")
+    cost = models.PositiveIntegerField()
+    crash_point = models.FloatField()
+    started_at = models.DateTimeField(auto_now_add=True)
+    # Cleared once the round is cashed out, busted, or forfeited by a new round.
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["-started_at"]
