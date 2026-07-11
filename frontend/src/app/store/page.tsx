@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Check,
   Lock,
+  Unlock,
 } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import UsernameBadge from "@/components/UsernameBadge";
@@ -30,6 +31,7 @@ import {
   requestCoinPurchase,
   giveDrink,
   ackGift,
+  adminStoreOpen,
   releaseName,
   type GameState,
   type GiftKind,
@@ -92,6 +94,11 @@ export default function StorePage() {
       <main className="flex flex-1 flex-col items-center gap-4 p-6">
         <h1 className="text-2xl font-semibold">Store</h1>
 
+        {/* Admin: open/close the whole store for every player at once. */}
+        {admin && (
+          <AdminOpenSwitch open={state.store_open} setState={setState} />
+        )}
+
         {/* Drinks handed to me */}
         {gifts.length > 0 && (
           <section className="w-full max-w-md space-y-2">
@@ -144,6 +151,50 @@ export default function StorePage() {
         isAdmin={admin}
         activityCount={(state.pending_purchases?.length ?? 0) + (state.pending_slot_drinks?.length ?? 0)}
       />
+    </div>
+  );
+}
+
+// --- Admin master switch ----------------------------------------------------
+
+// The one control that opens or closes the entire store for all players. Only
+// admins see it; players just get the items (or the closed notice).
+function AdminOpenSwitch({
+  open,
+  setState,
+}: {
+  open: boolean;
+  setState: (s: GameState) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function toggle() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      setState(await adminStoreOpen(!open));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="w-full max-w-md">
+      <Button
+        onClick={toggle}
+        disabled={busy}
+        variant={open ? "outline" : "default"}
+        size="lg"
+        className="w-full gap-1.5"
+      >
+        {open ? <Lock className="h-5 w-5" /> : <Unlock className="h-5 w-5" />}
+        {open ? "Store sluiten" : "Store openen"}
+      </Button>
+      <p className="mt-1.5 text-center text-xs text-muted-foreground">
+        {open
+          ? "De store is open voor de spelers."
+          : "De store is gesloten voor de spelers."}
+      </p>
     </div>
   );
 }

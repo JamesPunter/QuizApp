@@ -14,6 +14,7 @@ import {
   Disc3,
   ChevronDown,
   Lock,
+  Unlock,
   type LucideIcon,
 } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
@@ -29,6 +30,7 @@ import {
   startCrash,
   cashoutCrash,
   playRoulette,
+  adminMinigamesOpen,
   releaseName,
   type GameState,
   type SlotSymbol,
@@ -121,6 +123,11 @@ export default function MinigamesPage() {
       <main className="flex flex-1 flex-col items-center gap-4 p-6">
         <h1 className="text-2xl font-semibold">Minigames</h1>
 
+        {/* Admin: open/close all minigames for every player at once. */}
+        {admin && (
+          <AdminOpenSwitch open={state.minigames_open} setState={setState} />
+        )}
+
         {closed ? (
           <ClosedNotice label="De minigames zijn momenteel gesloten." />
         ) : (
@@ -159,6 +166,50 @@ export default function MinigamesPage() {
         isAdmin={admin}
         activityCount={(state.pending_purchases?.length ?? 0) + (state.pending_slot_drinks?.length ?? 0)}
       />
+    </div>
+  );
+}
+
+// --- Admin master switch ----------------------------------------------------
+
+// The one control that opens or closes every minigame for all players. Only
+// admins see it; players just get the games (or the closed notice).
+function AdminOpenSwitch({
+  open,
+  setState,
+}: {
+  open: boolean;
+  setState: (s: GameState) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function toggle() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      setState(await adminMinigamesOpen(!open));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="w-full max-w-md">
+      <Button
+        onClick={toggle}
+        disabled={busy}
+        variant={open ? "outline" : "default"}
+        size="lg"
+        className="w-full gap-1.5"
+      >
+        {open ? <Lock className="h-5 w-5" /> : <Unlock className="h-5 w-5" />}
+        {open ? "Minigames sluiten" : "Minigames openen"}
+      </Button>
+      <p className="mt-1.5 text-center text-xs text-muted-foreground">
+        {open
+          ? "De minigames zijn open voor de spelers."
+          : "De minigames zijn gesloten voor de spelers."}
+      </p>
     </div>
   );
 }
