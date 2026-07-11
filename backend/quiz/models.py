@@ -164,6 +164,10 @@ ROULETTE_PAYOUTS = {
 #    (see Gift).
 COIN_PACK_COINS = 50
 COIN_PACK_PRICE_EUR = 1
+# The "automatische pubquiz winst" item: a real-money Tikkie purchase that grants
+# no coins — once a quizmaster confirms the euros landed, the buyer is told they
+# win the pubquiz (see services.confirm_coin_purchase / build_state pubquiz_won).
+PUBQUIZ_PRICE_EUR = 950
 GIFT_SHOT = "shot"
 GIFT_SIP = "sip"
 STORE_DRINK_PRICES = {GIFT_SHOT: 200, GIFT_SIP: 35}
@@ -399,15 +403,22 @@ class Bet(models.Model):
 
 
 class CoinPurchase(models.Model):
-    """A real-money coin pack bought via Tikkie. Filed as pending when the player
-    taps the item; a quizmaster confirms it once the euro lands, which credits
-    the coins to the buyer (see services.confirm_coin_purchase)."""
+    """A real-money purchase made via Tikkie. Filed as pending when the player
+    taps the item; a quizmaster confirms it once the euros land. Two kinds:
+      - COINS: credits `coins` to the buyer (see services.confirm_coin_purchase).
+      - PUBQUIZ: the "automatische pubquiz winst" item — grants no coins; on
+        confirmation the buyer is simply told they win the pubquiz."""
 
     PENDING = "pending"
     CONFIRMED = "confirmed"
     STATUS_CHOICES = [(PENDING, "Pending"), (CONFIRMED, "Confirmed")]
 
+    KIND_COINS = "coins"
+    KIND_PUBQUIZ = "pubquiz"
+    KIND_CHOICES = [(KIND_COINS, "Coins"), (KIND_PUBQUIZ, "Pubquiz")]
+
     buyer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="coin_purchases")
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES, default=KIND_COINS)
     coins = models.IntegerField(default=COIN_PACK_COINS)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=PENDING)
     created_at = models.DateTimeField(auto_now_add=True)

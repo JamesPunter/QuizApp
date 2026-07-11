@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   Target,
+  Trophy,
   XCircle,
   type LucideIcon,
 } from "lucide-react";
@@ -176,27 +177,38 @@ function PurchasesPanel({
         </p>
       ) : (
         <div className="flex flex-col gap-1.5 px-4 pb-4">
-          {purchases.map((p) => (
-            <div
-              key={`purchase-${p.id}`}
-              className="flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm"
-            >
-              <span className="flex-1 truncate font-medium">{p.username}</span>
-              <span className="flex items-center gap-1 text-muted-foreground">
-                <Coins className="h-4 w-4" />
-                {p.coins} coins / 1 euro
-              </span>
-              <Button
-                size="sm"
-                onClick={() => onConfirm(p.id)}
-                disabled={busy}
-                className="shrink-0 gap-1"
+          {purchases.map((p) => {
+            const isPubquiz = p.kind === "pubquiz";
+            return (
+              <div
+                key={`purchase-${p.id}`}
+                className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                  isPubquiz
+                    ? "border-amber-300 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30"
+                    : "bg-card"
+                }`}
               >
-                <CheckCircle className="h-4 w-4" />
-                Bevestig
-              </Button>
-            </div>
-          ))}
+                <span className="flex-1 truncate font-medium">{p.username}</span>
+                <span
+                  className={`flex items-center gap-1 ${
+                    isPubquiz ? "text-amber-700" : "text-muted-foreground"
+                  }`}
+                >
+                  {isPubquiz ? <Trophy className="h-4 w-4" /> : <Coins className="h-4 w-4" />}
+                  {isPubquiz ? `Pubquiz-winst / ${p.price_eur} euro` : `${p.coins} coins / ${p.price_eur} euro`}
+                </span>
+                <Button
+                  size="sm"
+                  onClick={() => onConfirm(p.id)}
+                  disabled={busy}
+                  className="shrink-0 gap-1"
+                >
+                  <CheckCircle className="h-4 w-4" />
+                  Bevestig
+                </Button>
+              </div>
+            );
+          })}
           {slotDrinks.map((d) => {
             const isShot = d.kind === "shot";
             const Icon = isShot ? Martini : Beer;

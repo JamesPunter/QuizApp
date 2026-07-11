@@ -7,6 +7,7 @@ from . import services
 from .models import (
     CHALLENGE_MARKET,
     QUIZ_WINNER_MARKET,
+    CoinPurchase,
     GameState,
     Market,
     Question,
@@ -139,10 +140,13 @@ class RoulettePlayView(APIView):
 
 
 class BuyCoinsView(APIView):
-    """Store: file a pending coin pack (paid via Tikkie, confirmed by an admin)."""
+    """Store: file a pending real-money purchase (paid via Tikkie, confirmed by
+    an admin). `kind` is "coins" (a coin pack, default) or "pubquiz" (the
+    pubquiz-win item)."""
 
     def post(self, request):
-        _, error = services.request_coin_purchase(request.user)
+        kind = request.data.get("kind", CoinPurchase.KIND_COINS)
+        _, error = services.request_coin_purchase(request.user, kind)
         if error:
             return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
         return Response(services.build_state(request.user))

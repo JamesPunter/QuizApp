@@ -17,6 +17,8 @@ from .models import (
     CHALLENGE_MARKET,
     CHALLENGE_ODDS_FACTOR,
     COIN_PACK_COINS,
+    COIN_PACK_PRICE_EUR,
+    PUBQUIZ_PRICE_EUR,
     PLAYER_USERNAMES,
     PRESENCE_TTL_SECONDS,
     CRASH_GROWTH_HALF_LIFE,
@@ -378,15 +380,27 @@ def build_state(user):
     budget = None
     my_bets = []
     pending_purchase = None
+    pubquiz_pending = False
+    pubquiz_won = False
     slot_lock = None
     crash_round = None
     if not is_admin:
         player = Player.objects.filter(user=user).first()
         budget = player.budget if player else STARTING_BUDGET
         my_bets = [serialize_bet(b) for b in Bet.objects.filter(bettor=user)]
-        pp = CoinPurchase.objects.filter(buyer=user, status=CoinPurchase.PENDING).first()
+        pp = CoinPurchase.objects.filter(
+            buyer=user, kind=CoinPurchase.KIND_COINS, status=CoinPurchase.PENDING
+        ).first()
         if pp:
             pending_purchase = {"id": pp.id, "coins": pp.coins}
+        # The pubquiz-win item: pending while awaiting the quizmaster's OK, then
+        # permanently "won" once confirmed (drives the "je wint de pubquiz" banner).
+        pubquiz_pending = CoinPurchase.objects.filter(
+            buyer=user, kind=CoinPurchase.KIND_PUBQUIZ, status=CoinPurchase.PENDING
+        ).exists()
+        pubquiz_won = CoinPurchase.objects.filter(
+            buyer=user, kind=CoinPurchase.KIND_PUBQUIZ, status=CoinPurchase.CONFIRMED
+        ).exists()
         # A drink hit on the slot that's still awaiting the quizmaster's OK: it
         # locks this player's machine (the client disables Spin) until confirmed.
         sd = SlotDrink.objects.filter(player=user, status=SlotDrink.PENDING).first()
@@ -416,7 +430,17 @@ def build_state(user):
     activity = []
     if is_admin:
         pending_purchases = [
-            {"id": p.id, "username": p.buyer.username, "coins": p.coins}
+            {
+                "id": p.id,
+                "username": p.buyer.username,
+                "kind": p.kind,
+                "coins": p.coins,
+                "price_eur": (
+                    PUBQUIZ_PRICE_EUR
+                    if p.kind == CoinPurchase.KIND_PUBQUIZ
+                    else COIN_PACK_PRICE_EUR
+                ),
+            }
             for p in CoinPurchase.objects.filter(status=CoinPurchase.PENDING).select_related("buyer")
         ]
         # Drinks landed on the slot, waiting for the quizmaster to confirm the
@@ -468,6 +492,9 @@ def build_state(user):
             # waiting on a quizmaster's confirmation.
             "gifts_received": gifts_received,
             "pending_purchase": pending_purchase,
+            # The pubquiz-win store item: awaiting confirmation, then won.
+            "pubquiz_pending": pubquiz_pending,
+            "pubquiz_won": pubquiz_won,
             # A slot drink awaiting the quizmaster's OK, which locks my slot
             # machine until confirmed ({"kind": "shot"|"sip"}), else null.
             "slot_lock": slot_lock,
@@ -892,20 +919,41 @@ def play_roulette(user, cost, bet):
 # --- Store -------------------------------------------------------------------
 
 
-def request_coin_purchase(user):
-    """File a pending coin pack for the quizmaster to confirm. Returns
-    (purchase, error). One pending purchase at a time keeps the admin queue
-    clean — the euro is paid via Tikkie outside the app."""
+def request_coin_purchase(user, kind=CoinPurchase.KIND_COINS):
+    """File a pending real-money purchase for the quizmaster to confirm. Returns
+    (purchase, error). One pending purchase per kind keeps the admin queue clean
+    — the euros are paid via Tikkie outside the app. `kind` is COINS (credits a
+    coin pack) or PUBQUIZ (the pubquiz-win item, no coins)."""
+    if kind not in (CoinPurchase.KIND_COINS, CoinPurchase.KIND_PUBQUIZ):
+        return None, "Onbekende aankoop."
+
     if is_admin_username(user.username):
-        return None, "Beheerders kopen geen coins."
+        return None, "Beheerders kopen niks."
 
     if not GameState.get().store_open:
         return None, "De store is gesloten."
 
-    if CoinPurchase.objects.filter(buyer=user, status=CoinPurchase.PENDING).exists():
+    if CoinPurchase.objects.filter(
+        buyer=user, kind=kind, status=CoinPurchase.PENDING
+    ).exists():
         return None, "Je hebt al een aankoop in afwachting van bevestiging."
 
-    purchase = CoinPurchase.objects.create(buyer=user, coins=COIN_PACK_COINS)
+    if kind == CoinPurchase.KIND_PUBQUIZ:
+        # A confirmed pubquiz win is permanent (the buyer keeps the "je wint"
+        # banner), so don't let them re-file once it's already been granted.
+        if CoinPurchase.objects.filter(
+            buyer=user, kind=kind, status=CoinPurchase.CONFIRMED
+        ).exists():
+            return None, "Je hebt de pubquiz al gewonnen."
+        purchase = CoinPurchase.objects.create(buyer=user, kind=kind, coins=0)
+        record_activity(
+            user,
+            ActivityEvent.PURCHASE,
+            f"kocht de pubquiz-winst ({PUBQUIZ_PRICE_EUR} euro) via Tikkie",
+        )
+        return purchase, None
+
+    purchase = CoinPurchase.objects.create(buyer=user, kind=kind, coins=COIN_PACK_COINS)
     record_activity(
         user, ActivityEvent.PURCHASE, f"vroeg {COIN_PACK_COINS} coins aan via Tikkie"
     )
@@ -913,15 +961,18 @@ def request_coin_purchase(user):
 
 
 def confirm_coin_purchase(purchase_id):
-    """Admin: mark a pending coin pack paid and credit the coins. Idempotent-ish:
-    an already-confirmed purchase is rejected. Returns (purchase, error)."""
+    """Admin: mark a pending purchase paid. For a coin pack this credits the
+    coins; for the pubquiz-win item it just confirms (the buyer then sees they
+    win the pubquiz). An already-confirmed purchase is rejected. Returns
+    (purchase, error)."""
     purchase = CoinPurchase.objects.filter(id=purchase_id).select_related("buyer").first()
     if purchase is None:
         return None, "Onbekende aankoop."
     if purchase.status == CoinPurchase.CONFIRMED:
         return None, "Deze aankoop is al bevestigd."
 
-    _credit(purchase.buyer, purchase.coins)
+    if purchase.kind == CoinPurchase.KIND_COINS:
+        _credit(purchase.buyer, purchase.coins)
     purchase.status = CoinPurchase.CONFIRMED
     purchase.confirmed_at = timezone.now()
     purchase.save(update_fields=["status", "confirmed_at"])

@@ -15,15 +15,16 @@ export const STARTING_BUDGET = 1000;
 // mirroring backend/quiz/models.py.
 export const COIN_PACK_COINS = 50;
 export const COIN_PACK_PRICE_EUR = 1;
+export const PUBQUIZ_PRICE_EUR = 950;
 export const STORE_SHOT_PRICE = 200;
 export const STORE_SIP_PRICE = 35;
 
-// Tikkie payment links (real money). Set these to your own Tikkie request URLs;
-// override per-device via NEXT_PUBLIC_TIKKIE_* in .env.local.
+// Tikkie payment links (real money). Defaults are the live request URLs; they
+// can still be overridden per-device via NEXT_PUBLIC_TIKKIE_* in .env.local.
 export const TIKKIE_COINS_URL =
-  process.env.NEXT_PUBLIC_TIKKIE_COINS_URL ?? "https://tikkie.me/pay/REPLACE-ME-1-EURO";
+  process.env.NEXT_PUBLIC_TIKKIE_COINS_URL ?? "https://tikkie.me/pay/4gf11le3nbqp516i791a";
 export const TIKKIE_PUBQUIZ_URL =
-  process.env.NEXT_PUBLIC_TIKKIE_PUBQUIZ_URL ?? "https://tikkie.me/pay/REPLACE-ME-1000-EURO";
+  process.env.NEXT_PUBLIC_TIKKIE_PUBQUIZ_URL ?? "https://tikkie.me/pay/v7hhckko5u03vu69s7vm";
 
 // --- Types (mirror the build_state payload) ---------------------------------
 
@@ -164,11 +165,14 @@ export interface PendingPurchase {
   coins: number;
 }
 
-// Admin-side view of a coin pack awaiting confirmation.
+// Admin-side view of a real-money purchase awaiting confirmation. `kind` is
+// "coins" (a coin pack) or "pubquiz" (the pubquiz-win item, coins = 0).
 export interface AdminPurchase {
   id: number;
   username: string;
+  kind: "coins" | "pubquiz";
   coins: number;
+  price_eur: number;
 }
 
 // A shot/slok I landed on the slot machine, awaiting the quizmaster's
@@ -237,6 +241,9 @@ export interface GameState {
     // Store: drinks handed to me + my coin pack awaiting confirmation.
     gifts_received: Gift[];
     pending_purchase: PendingPurchase | null;
+    // The pubquiz-win store item: awaiting the quizmaster's OK, then won for good.
+    pubquiz_pending: boolean;
+    pubquiz_won: boolean;
     // A slot drink awaiting the quizmaster's OK, which locks my slot machine
     // until confirmed; null when the machine is free to spin.
     slot_lock: SlotLock | null;
@@ -450,6 +457,15 @@ export function playRoulette(cost: number, bet: RouletteBet): Promise<GameState>
 // File a pending coin pack (paid via Tikkie, confirmed by a quizmaster).
 export function requestCoinPurchase(): Promise<GameState> {
   return request<GameState>("/api/store/buy-coins/", { method: "POST", body: {} });
+}
+
+// File a pending pubquiz-win purchase (paid via Tikkie, confirmed by a
+// quizmaster; grants no coins — once confirmed the buyer wins the pubquiz).
+export function requestPubquizWin(): Promise<GameState> {
+  return request<GameState>("/api/store/buy-coins/", {
+    method: "POST",
+    body: { kind: "pubquiz" },
+  });
 }
 
 // Spend coins to make `recipient` (a player or quizmaster) take a shot/sip.

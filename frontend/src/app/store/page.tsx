@@ -24,11 +24,13 @@ import { ADMIN_USERNAMES } from "@/lib/quizState";
 import {
   COIN_PACK_COINS,
   COIN_PACK_PRICE_EUR,
+  PUBQUIZ_PRICE_EUR,
   STORE_SHOT_PRICE,
   STORE_SIP_PRICE,
   TIKKIE_COINS_URL,
   TIKKIE_PUBQUIZ_URL,
   requestCoinPurchase,
+  requestPubquizWin,
   giveDrink,
   ackGift,
   adminStoreOpen,
@@ -115,8 +117,8 @@ export default function StorePage() {
             {/* Coins met echt geld (Tikkie) */}
             <CoinPackItem state={state} setState={setState} admin={admin} />
 
-            {/* Grap-item: doet niks */}
-            <PubquizWinItem admin={admin} />
+            {/* Pubquiz-winst kopen met echt geld (Tikkie), bevestigd door admin */}
+            <PubquizWinItem state={state} setState={setState} admin={admin} />
 
             {/* Drankjes uitdelen met coins */}
             <DrinkItem
@@ -313,30 +315,71 @@ function CoinPackItem({
   );
 }
 
-// --- Automatische pubquiz winst (grap) --------------------------------------
+// --- Automatische pubquiz winst (echt geld via Tikkie) ----------------------
 
-function PubquizWinItem({ admin }: { admin: boolean }) {
-  const [clicked, setClicked] = useState(false);
+// Works like the coin pack: tapping opens the Tikkie link and files a pending
+// purchase the quizmaster confirms. On confirmation the buyer keeps a "je wint
+// de pubquiz" banner — the quiz itself just carries on as normal.
+function PubquizWinItem({
+  state,
+  setState,
+  admin,
+}: {
+  state: GameState;
+  setState: (s: GameState) => void;
+  admin: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const won = state.you.pubquiz_won;
+  const pending = state.you.pubquiz_pending;
+
+  async function handleBuy() {
+    if (busy) return;
+    setError(null);
+    window.open(TIKKIE_PUBQUIZ_URL, "_blank", "noopener,noreferrer");
+    setBusy(true);
+    try {
+      setState(await requestPubquizWin());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Kon de aankoop niet plaatsen.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <StoreItem
       icon={<Trophy className="h-5 w-5 text-primary" />}
       title="Automatische pubquiz winst"
-      price="1000 euro"
+      price={`${PUBQUIZ_PRICE_EUR} euro`}
     >
-      {admin ? null : (
+      {admin ? null : won ? (
+        <div className="rounded-lg bg-green-100 px-4 py-3 text-center text-sm font-semibold text-green-800">
+          🏆 Je wint de pubquiz!
+        </div>
+      ) : pending ? (
         <div className="space-y-2">
+          <div className="rounded-lg bg-muted px-4 py-3 text-center text-sm text-muted-foreground">
+            In afwachting van bevestiging…
+          </div>
           <a
             href={TIKKIE_PUBQUIZ_URL}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={() => setClicked(true)}
-            className="flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            className="flex items-center justify-center gap-1.5 text-sm font-medium text-primary hover:underline"
           >
             <ExternalLink className="h-4 w-4" />
-            Betaal 1000 euro met Tikkie
+            Tikkie opnieuw openen
           </a>
-          {clicked && <p className="text-center text-sm font-medium">Veel plezier ;)</p>}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <Button onClick={handleBuy} disabled={busy} className="w-full gap-1.5">
+            <ExternalLink className="h-4 w-4" />
+            Betaal {PUBQUIZ_PRICE_EUR} euro met Tikkie
+          </Button>
+          {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
       )}
     </StoreItem>
