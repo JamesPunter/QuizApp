@@ -27,6 +27,7 @@ import { useGameState } from "@/lib/useGameState";
 import { challengeFor } from "@/lib/challenges";
 import {
   adminConfirmPurchase,
+  adminRejectPurchase,
   adminConfirmSlotDrink,
   adminSaveChallenges,
   releaseName,
@@ -91,6 +92,7 @@ export default function ActivityPage() {
           slotDrinks={state.pending_slot_drinks}
           busy={busy}
           onConfirm={(id) => run(() => adminConfirmPurchase(id))}
+          onReject={(id) => run(() => adminRejectPurchase(id))}
           onConfirmDrink={(id) => run(() => adminConfirmSlotDrink(id))}
         />
 
@@ -156,12 +158,14 @@ function PurchasesPanel({
   slotDrinks,
   busy,
   onConfirm,
+  onReject,
   onConfirmDrink,
 }: {
   purchases: AdminPurchase[];
   slotDrinks: AdminSlotDrink[];
   busy: boolean;
   onConfirm: (id: number) => void;
+  onReject: (id: number) => void;
   onConfirmDrink: (id: number) => void;
 }) {
   const empty = purchases.length === 0 && slotDrinks.length === 0;
@@ -197,6 +201,17 @@ function PurchasesPanel({
                   {isPubquiz ? <Trophy className="h-4 w-4" /> : <Coins className="h-4 w-4" />}
                   {isPubquiz ? `Pubquiz-winst / ${p.price_eur} euro` : `${p.coins} coins / ${p.price_eur} euro`}
                 </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onReject(p.id)}
+                  disabled={busy}
+                  aria-label={`Aankoop van ${p.username} afwijzen`}
+                  className="shrink-0 gap-1 text-red-600 hover:bg-red-50 hover:text-red-700"
+                >
+                  <XCircle className="h-4 w-4" />
+                  Afwijzen
+                </Button>
                 <Button
                   size="sm"
                   onClick={() => onConfirm(p.id)}

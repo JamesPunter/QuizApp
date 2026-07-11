@@ -304,6 +304,11 @@ function CoinPackItem({
         </div>
       ) : (
         <div className="space-y-2">
+          {state.you.purchase_rejected && (
+            <p className="rounded-lg bg-red-50 px-4 py-2.5 text-center text-sm font-medium text-red-700">
+              Je aankoop is afgewezen. Je kunt het opnieuw proberen.
+            </p>
+          )}
           <Button onClick={handleBuy} disabled={busy} className="w-full gap-1.5">
             <ExternalLink className="h-4 w-4" />
             Betaal {COIN_PACK_PRICE_EUR} euro met Tikkie
@@ -375,6 +380,11 @@ function PubquizWinItem({
         </div>
       ) : (
         <div className="space-y-2">
+          {state.you.pubquiz_rejected && (
+            <p className="rounded-lg bg-red-50 px-4 py-2.5 text-center text-sm font-medium text-red-700">
+              Je aankoop is afgewezen. Je kunt het opnieuw proberen.
+            </p>
+          )}
           <Button onClick={handleBuy} disabled={busy} className="w-full gap-1.5">
             <ExternalLink className="h-4 w-4" />
             Betaal {PUBQUIZ_PRICE_EUR} euro met Tikkie

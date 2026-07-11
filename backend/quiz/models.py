@@ -411,7 +411,12 @@ class CoinPurchase(models.Model):
 
     PENDING = "pending"
     CONFIRMED = "confirmed"
-    STATUS_CHOICES = [(PENDING, "Pending"), (CONFIRMED, "Confirmed")]
+    REJECTED = "rejected"
+    STATUS_CHOICES = [
+        (PENDING, "Pending"),
+        (CONFIRMED, "Confirmed"),
+        (REJECTED, "Rejected"),
+    ]
 
     KIND_COINS = "coins"
     KIND_PUBQUIZ = "pubquiz"

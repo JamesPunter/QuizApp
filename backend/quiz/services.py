@@ -380,27 +380,47 @@ def build_state(user):
     budget = None
     my_bets = []
     pending_purchase = None
+    purchase_rejected = False
     pubquiz_pending = False
     pubquiz_won = False
+    pubquiz_rejected = False
     slot_lock = None
     crash_round = None
     if not is_admin:
         player = Player.objects.filter(user=user).first()
         budget = player.budget if player else STARTING_BUDGET
         my_bets = [serialize_bet(b) for b in Bet.objects.filter(bettor=user)]
-        pp = CoinPurchase.objects.filter(
-            buyer=user, kind=CoinPurchase.KIND_COINS, status=CoinPurchase.PENDING
-        ).first()
-        if pp:
-            pending_purchase = {"id": pp.id, "coins": pp.coins}
+        # Branch on the single most-recent coin pack: pending → awaiting OK,
+        # rejected → show a "try again" notice, confirmed → nothing (coins landed).
+        # A fresh request files a new PENDING row, so the notice self-clears.
+        latest_coins = (
+            CoinPurchase.objects.filter(buyer=user, kind=CoinPurchase.KIND_COINS)
+            .order_by("-created_at")
+            .first()
+        )
+        if latest_coins and latest_coins.status == CoinPurchase.PENDING:
+            pending_purchase = {"id": latest_coins.id, "coins": latest_coins.coins}
+        purchase_rejected = bool(
+            latest_coins and latest_coins.status == CoinPurchase.REJECTED
+        )
         # The pubquiz-win item: pending while awaiting the quizmaster's OK, then
-        # permanently "won" once confirmed (drives the "je wint de pubquiz" banner).
-        pubquiz_pending = CoinPurchase.objects.filter(
-            buyer=user, kind=CoinPurchase.KIND_PUBQUIZ, status=CoinPurchase.PENDING
-        ).exists()
+        # permanently "won" once confirmed (drives the "je wint de pubquiz" banner),
+        # or rejected (show a "try again" notice like the coin pack).
         pubquiz_won = CoinPurchase.objects.filter(
             buyer=user, kind=CoinPurchase.KIND_PUBQUIZ, status=CoinPurchase.CONFIRMED
         ).exists()
+        latest_pubquiz = (
+            CoinPurchase.objects.filter(buyer=user, kind=CoinPurchase.KIND_PUBQUIZ)
+            .order_by("-created_at")
+            .first()
+        )
+        pubquiz_pending = bool(
+            latest_pubquiz and latest_pubquiz.status == CoinPurchase.PENDING
+        )
+        pubquiz_rejected = (
+            not pubquiz_won
+            and bool(latest_pubquiz and latest_pubquiz.status == CoinPurchase.REJECTED)
+        )
         # A drink hit on the slot that's still awaiting the quizmaster's OK: it
         # locks this player's machine (the client disables Spin) until confirmed.
         sd = SlotDrink.objects.filter(player=user, status=SlotDrink.PENDING).first()
@@ -492,9 +512,12 @@ def build_state(user):
             # waiting on a quizmaster's confirmation.
             "gifts_received": gifts_received,
             "pending_purchase": pending_purchase,
-            # The pubquiz-win store item: awaiting confirmation, then won.
+            # True when my last coin pack was rejected by an admin (I can retry).
+            "purchase_rejected": purchase_rejected,
+            # The pubquiz-win store item: awaiting confirmation, won, or rejected.
             "pubquiz_pending": pubquiz_pending,
             "pubquiz_won": pubquiz_won,
+            "pubquiz_rejected": pubquiz_rejected,
             # A slot drink awaiting the quizmaster's OK, which locks my slot
             # machine until confirmed ({"kind": "shot"|"sip"}), else null.
             "slot_lock": slot_lock,
@@ -976,6 +999,23 @@ def confirm_coin_purchase(purchase_id):
     purchase.status = CoinPurchase.CONFIRMED
     purchase.confirmed_at = timezone.now()
     purchase.save(update_fields=["status", "confirmed_at"])
+    return purchase, None
+
+
+def reject_coin_purchase(purchase_id):
+    """Admin: turn down a pending purchase. The buyer gets nothing (no coins, no
+    pubquiz win) and may file the request again. An already-confirmed purchase
+    can't be rejected. Returns (purchase, error)."""
+    purchase = CoinPurchase.objects.filter(id=purchase_id).select_related("buyer").first()
+    if purchase is None:
+        return None, "Onbekende aankoop."
+    if purchase.status == CoinPurchase.CONFIRMED:
+        return None, "Deze aankoop is al bevestigd."
+    if purchase.status == CoinPurchase.REJECTED:
+        return None, "Deze aankoop is al afgewezen."
+
+    purchase.status = CoinPurchase.REJECTED
+    purchase.save(update_fields=["status"])
     return purchase, None
 
 

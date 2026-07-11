@@ -372,6 +372,18 @@ class ConfirmPurchaseView(APIView):
         return Response(services.build_state(request.user))
 
 
+class RejectPurchaseView(APIView):
+    """Admin: turn down a pending purchase (buyer gets nothing, may retry)."""
+
+    permission_classes = [IsQuizAdmin]
+
+    def post(self, request):
+        _, error = services.reject_coin_purchase(request.data.get("id"))
+        if error:
+            return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(services.build_state(request.user))
+
+
 class ConfirmSlotDrinkView(APIView):
     permission_classes = [IsQuizAdmin]
 

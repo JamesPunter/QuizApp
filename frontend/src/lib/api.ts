@@ -241,9 +241,13 @@ export interface GameState {
     // Store: drinks handed to me + my coin pack awaiting confirmation.
     gifts_received: Gift[];
     pending_purchase: PendingPurchase | null;
-    // The pubquiz-win store item: awaiting the quizmaster's OK, then won for good.
+    // True when my last coin pack was rejected by an admin (I can try again).
+    purchase_rejected: boolean;
+    // The pubquiz-win store item: awaiting the quizmaster's OK, won for good, or
+    // rejected (I can try again).
     pubquiz_pending: boolean;
     pubquiz_won: boolean;
+    pubquiz_rejected: boolean;
     // A slot drink awaiting the quizmaster's OK, which locks my slot machine
     // until confirmed; null when the machine is free to spin.
     slot_lock: SlotLock | null;
@@ -587,6 +591,14 @@ export function adminReset(): Promise<GameState> {
 // Confirm a coin pack was paid via Tikkie and credit the coins.
 export function adminConfirmPurchase(id: number): Promise<GameState> {
   return request<GameState>("/api/admin/confirm-purchase/", {
+    method: "POST",
+    body: { id },
+  });
+}
+
+// Turn down a pending purchase: the buyer gets nothing and may try again.
+export function adminRejectPurchase(id: number): Promise<GameState> {
+  return request<GameState>("/api/admin/reject-purchase/", {
     method: "POST",
     body: { id },
   });
