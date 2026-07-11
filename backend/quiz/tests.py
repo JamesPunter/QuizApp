@@ -345,6 +345,9 @@ class MinigameTest(TestCase):
         self.user = User.objects.create(username="Stein")
         Player.objects.create(user=self.user, budget=1000, in_roster=True)
         self.admin = User.objects.create(username="James")
+        game = GameState.get()
+        game.minigames_open = True
+        game.save(update_fields=["minigames_open"])
 
     def budget(self):
         return Player.objects.get(user=self.user).budget
@@ -487,6 +490,9 @@ class ActivityFeedTest(TestCase):
         self.user = User.objects.create(username="Stein")
         Player.objects.create(user=self.user, budget=1000, in_roster=True)
         self.admin = User.objects.create(username="James")
+        game = GameState.get()
+        game.minigames_open = True
+        game.save(update_fields=["minigames_open"])
 
     def test_minigame_logs_an_event_visible_to_admins_only(self):
         services.play_roulette(self.user, 100, "red")
@@ -519,6 +525,9 @@ class SlotDrinkTest(TestCase):
         self.user = User.objects.create(username="Stein")
         Player.objects.create(user=self.user, budget=1000, in_roster=True)
         self.admin = User.objects.create(username="James")
+        game = GameState.get()
+        game.minigames_open = True
+        game.save(update_fields=["minigames_open"])
 
     def _spin_shot(self):
         # Miss the jackpot roll (first random() above its threshold), then force
@@ -604,6 +613,69 @@ class SlotDrinkTest(TestCase):
         self.assertTrue(SlotDrink.objects.exists())
         services.reset_game()
         self.assertFalse(SlotDrink.objects.exists())
+
+
+class MasterSwitchTest(TestCase):
+    """The store and all minigames share one open/close switch each; both start
+    closed and every player action is refused until the admin opens them."""
+
+    def setUp(self):
+        self.user = User.objects.create(username="Stein")
+        Player.objects.create(user=self.user, budget=1000, in_roster=True)
+        self.other = User.objects.create(username="Niels")
+        Player.objects.create(user=self.other, budget=1000, in_roster=True)
+
+    def _open(self, *, store=False, minigames=False):
+        game = GameState.get()
+        game.store_open = store
+        game.minigames_open = minigames
+        game.save(update_fields=["store_open", "minigames_open"])
+
+    def test_default_state_is_closed(self):
+        game = GameState.get()
+        self.assertFalse(game.store_open)
+        self.assertFalse(game.minigames_open)
+        state = services.build_state(self.user)
+        self.assertFalse(state["store_open"])
+        self.assertFalse(state["minigames_open"])
+
+    def test_minigames_refused_while_closed(self):
+        for call in (
+            lambda: services.spin_slot(self.user, 100),
+            lambda: services.start_crash(self.user, 100),
+            lambda: services.play_roulette(self.user, 100, "red"),
+        ):
+            result, err = call()
+            self.assertIsNone(result)
+            self.assertEqual(err, "De minigames zijn gesloten.")
+
+    def test_minigames_allowed_once_opened(self):
+        self._open(minigames=True)
+        result, err = services.play_roulette(self.user, 100, "red")
+        self.assertIsNone(err)
+        self.assertIsNotNone(result)
+
+    def test_store_refused_while_closed(self):
+        purchase, err = services.request_coin_purchase(self.user)
+        self.assertIsNone(purchase)
+        self.assertEqual(err, "De store is gesloten.")
+
+        gift, err = services.give_drink(self.user, "shot", "Niels")
+        self.assertIsNone(gift)
+        self.assertEqual(err, "De store is gesloten.")
+
+    def test_store_allowed_once_opened(self):
+        self._open(store=True)
+        purchase, err = services.request_coin_purchase(self.user)
+        self.assertIsNone(err)
+        self.assertIsNotNone(purchase)
+
+    def test_reset_recloses_both(self):
+        self._open(store=True, minigames=True)
+        services.reset_game()
+        game = GameState.get()
+        self.assertFalse(game.store_open)
+        self.assertFalse(game.minigames_open)
 
 
 class RankRewardTest(TestCase):

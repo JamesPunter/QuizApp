@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ExternalLink,
   Check,
+  Lock,
 } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import UsernameBadge from "@/components/UsernameBadge";
@@ -56,6 +57,9 @@ export default function StorePage() {
   const budget = state.you.budget ?? 0;
   const gifts = state.you.gifts_received ?? [];
   const live = !admin && state.current_index >= 0 && state.entry_state === "open";
+  // Admins keep seeing the store to preview it; players only get it when the
+  // quizmaster has opened it. Incoming drinks stay visible either way.
+  const closed = !admin && !state.store_open;
 
   return (
     <div className="flex min-h-screen flex-col bg-background pb-20">
@@ -97,35 +101,41 @@ export default function StorePage() {
           </section>
         )}
 
-        {/* Coins met echt geld (Tikkie) */}
-        <CoinPackItem state={state} setState={setState} admin={admin} />
+        {closed ? (
+          <ClosedNotice label="De store is momenteel gesloten." />
+        ) : (
+          <>
+            {/* Coins met echt geld (Tikkie) */}
+            <CoinPackItem state={state} setState={setState} admin={admin} />
 
-        {/* Grap-item: doet niks */}
-        <PubquizWinItem admin={admin} />
+            {/* Grap-item: doet niks */}
+            <PubquizWinItem admin={admin} />
 
-        {/* Drankjes uitdelen met coins */}
-        <DrinkItem
-          kind="shot"
-          price={STORE_SHOT_PRICE}
-          title="Shotje uitdelen"
-          icon={<Martini className="h-5 w-5 text-primary" strokeWidth={1.5} />}
-          state={state}
-          setState={setState}
-          admin={admin}
-          budget={budget}
-          username={username}
-        />
-        <DrinkItem
-          kind="sip"
-          price={STORE_SIP_PRICE}
-          title="Slok uitdelen"
-          icon={<Beer className="h-5 w-5 text-primary" strokeWidth={1.5} />}
-          state={state}
-          setState={setState}
-          admin={admin}
-          budget={budget}
-          username={username}
-        />
+            {/* Drankjes uitdelen met coins */}
+            <DrinkItem
+              kind="shot"
+              price={STORE_SHOT_PRICE}
+              title="Shotje uitdelen"
+              icon={<Martini className="h-5 w-5 text-primary" strokeWidth={1.5} />}
+              state={state}
+              setState={setState}
+              admin={admin}
+              budget={budget}
+              username={username}
+            />
+            <DrinkItem
+              kind="sip"
+              price={STORE_SIP_PRICE}
+              title="Slok uitdelen"
+              icon={<Beer className="h-5 w-5 text-primary" strokeWidth={1.5} />}
+              state={state}
+              setState={setState}
+              admin={admin}
+              budget={budget}
+              username={username}
+            />
+          </>
+        )}
       </main>
 
       <BottomNav
@@ -134,6 +144,18 @@ export default function StorePage() {
         isAdmin={admin}
         activityCount={(state.pending_purchases?.length ?? 0) + (state.pending_slot_drinks?.length ?? 0)}
       />
+    </div>
+  );
+}
+
+// --- Closed notice ----------------------------------------------------------
+
+// Shown to players when the quizmaster has the store (or minigames) closed.
+function ClosedNotice({ label }: { label: string }) {
+  return (
+    <div className="mt-6 flex w-full max-w-md flex-col items-center gap-3 rounded-xl border bg-card px-6 py-10 text-center">
+      <Lock className="h-8 w-8 text-muted-foreground" strokeWidth={1.5} />
+      <p className="text-sm font-medium text-muted-foreground">{label}</p>
     </div>
   );
 }

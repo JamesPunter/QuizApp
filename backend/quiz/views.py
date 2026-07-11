@@ -268,6 +268,30 @@ class ScoresVisibleView(APIView):
         return Response(services.build_state(request.user))
 
 
+class StoreOpenView(APIView):
+    """Admin: flip the master switch that opens/closes the whole store."""
+
+    permission_classes = [IsQuizAdmin]
+
+    def post(self, request):
+        game = GameState.get()
+        game.store_open = bool(request.data.get("open"))
+        game.save(update_fields=["store_open"])
+        return Response(services.build_state(request.user))
+
+
+class MinigamesOpenView(APIView):
+    """Admin: flip the master switch that opens/closes all minigames."""
+
+    permission_classes = [IsQuizAdmin]
+
+    def post(self, request):
+        game = GameState.get()
+        game.minigames_open = bool(request.data.get("open"))
+        game.save(update_fields=["minigames_open"])
+        return Response(services.build_state(request.user))
+
+
 class MarketView(APIView):
     permission_classes = [IsQuizAdmin]
 

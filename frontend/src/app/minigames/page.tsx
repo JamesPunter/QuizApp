@@ -13,6 +13,7 @@ import {
   Rocket,
   Disc3,
   ChevronDown,
+  Lock,
   type LucideIcon,
 } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
@@ -77,6 +78,9 @@ export default function MinigamesPage() {
   const realBudget = state.you.budget ?? 0;
   const budget = budgetOverride ?? realBudget;
   const live = !admin && state.current_index >= 0 && state.entry_state === "open";
+  // Admins keep seeing the games to preview them; players only get them once the
+  // quizmaster has opened the minigames.
+  const closed = !admin && !state.minigames_open;
 
   const gameProps: GameProps = {
     admin,
@@ -117,30 +121,36 @@ export default function MinigamesPage() {
       <main className="flex flex-1 flex-col items-center gap-4 p-6">
         <h1 className="text-2xl font-semibold">Minigames</h1>
 
-        <GameShell
-          icon={<Cherry className="h-5 w-5 text-primary" />}
-          title="Slot"
-          subtitle="Drie gelijk wint"
-          defaultOpen
-        >
-          <SlotGame {...gameProps} slotLock={state.you.slot_lock} />
-        </GameShell>
+        {closed ? (
+          <ClosedNotice label="De minigames zijn momenteel gesloten." />
+        ) : (
+          <>
+            <GameShell
+              icon={<Cherry className="h-5 w-5 text-primary" />}
+              title="Slot"
+              subtitle="Drie gelijk wint"
+              defaultOpen
+            >
+              <SlotGame {...gameProps} slotLock={state.you.slot_lock} />
+            </GameShell>
 
-        <GameShell
-          icon={<Rocket className="h-5 w-5 text-primary" />}
-          title="Crash"
-          subtitle="Cash uit voor de crash"
-        >
-          <CrashGame {...gameProps} crashRound={state.you.crash_round} />
-        </GameShell>
+            <GameShell
+              icon={<Rocket className="h-5 w-5 text-primary" />}
+              title="Crash"
+              subtitle="Cash uit voor de crash"
+            >
+              <CrashGame {...gameProps} crashRound={state.you.crash_round} />
+            </GameShell>
 
-        <GameShell
-          icon={<Disc3 className="h-5 w-5 text-primary" />}
-          title="Roulette"
-          subtitle="Zet in op het wiel"
-        >
-          <RouletteGame {...gameProps} />
-        </GameShell>
+            <GameShell
+              icon={<Disc3 className="h-5 w-5 text-primary" />}
+              title="Roulette"
+              subtitle="Zet in op het wiel"
+            >
+              <RouletteGame {...gameProps} />
+            </GameShell>
+          </>
+        )}
       </main>
 
       <BottomNav
@@ -149,6 +159,18 @@ export default function MinigamesPage() {
         isAdmin={admin}
         activityCount={(state.pending_purchases?.length ?? 0) + (state.pending_slot_drinks?.length ?? 0)}
       />
+    </div>
+  );
+}
+
+// --- Closed notice ----------------------------------------------------------
+
+// Shown to players when the quizmaster has the minigames closed.
+function ClosedNotice({ label }: { label: string }) {
+  return (
+    <div className="mt-6 flex w-full max-w-md flex-col items-center gap-3 rounded-xl border bg-card px-6 py-10 text-center">
+      <Lock className="h-8 w-8 text-muted-foreground" strokeWidth={1.5} />
+      <p className="text-sm font-medium text-muted-foreground">{label}</p>
     </div>
   );
 }

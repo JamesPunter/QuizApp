@@ -447,6 +447,9 @@ def build_state(user):
         "current_index": idx,
         "entry_state": game.entry_state,
         "scores_visible": game.scores_visible,
+        # Master open/close switches for the whole store and all minigames.
+        "store_open": game.store_open,
+        "minigames_open": game.minigames_open,
         # True once both outcome markets are settled and the rank coins are paid
         # out; unlocks the final scores + budgets for every player.
         "results_published": results_published,
@@ -637,6 +640,9 @@ def spin_slot(user, cost):
     if is_admin_username(user.username):
         return None, "Beheerders kunnen niet spelen."
 
+    if not GameState.get().minigames_open:
+        return None, "De minigames zijn gesloten."
+
     # A drink landed on an earlier spin locks the machine until a quizmaster
     # confirms the player has actually drunk it (see confirm_slot_drink).
     if SlotDrink.objects.filter(player=user, status=SlotDrink.PENDING).exists():
@@ -706,6 +712,8 @@ def _take_minigame_stake(user, cost):
     rejects admins, junk stakes, and over-budget bets the same way as the slot."""
     if is_admin_username(user.username):
         return None, None, "Beheerders kunnen niet spelen."
+    if not GameState.get().minigames_open:
+        return None, None, "De minigames zijn gesloten."
     try:
         cost = int(cost)
     except (TypeError, ValueError):
@@ -891,6 +899,9 @@ def request_coin_purchase(user):
     if is_admin_username(user.username):
         return None, "Beheerders kopen geen coins."
 
+    if not GameState.get().store_open:
+        return None, "De store is gesloten."
+
     if CoinPurchase.objects.filter(buyer=user, status=CoinPurchase.PENDING).exists():
         return None, "Je hebt al een aankoop in afwachting van bevestiging."
 
@@ -938,6 +949,9 @@ def give_drink(user, kind, recipient_name):
     recipient can be any other player or a quizmaster; they get a notification."""
     if is_admin_username(user.username):
         return None, "Beheerders kopen niks in de store."
+
+    if not GameState.get().store_open:
+        return None, "De store is gesloten."
 
     price = STORE_DRINK_PRICES.get(kind)
     if price is None:
@@ -1327,6 +1341,9 @@ def reset_game():
     game.entry_state = GameState.OPEN
     game.scores_visible = False
     game.rank_coins_awarded = False
+    # The store and minigames go back to their closed default on a reset.
+    game.store_open = False
+    game.minigames_open = False
     game.save()
 
 

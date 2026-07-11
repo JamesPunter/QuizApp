@@ -15,6 +15,8 @@ import {
   Coins,
   Trophy,
   TrendingDown,
+  ShoppingBag,
+  Gamepad2,
 } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { Button } from "@/components/ui/button";
@@ -30,6 +32,8 @@ import {
   adminReset,
   adminSettle,
   adminPayout,
+  adminStoreOpen,
+  adminMinigamesOpen,
   releaseName,
   type GameState,
   type Market,
@@ -126,6 +130,25 @@ export default function AdminPage() {
 
       <div className="flex w-full justify-center px-6 pt-2">
         <PresencePanel players={state.players} present={state.present} />
+      </div>
+
+      <div className="flex w-full justify-center px-6 pt-3">
+        <div className="grid w-full max-w-md grid-cols-2 gap-2">
+          <OpenToggle
+            icon={<ShoppingBag className="h-4 w-4" />}
+            label="Store"
+            open={state.store_open}
+            busy={busy}
+            onToggle={() => run(() => adminStoreOpen(!state.store_open))}
+          />
+          <OpenToggle
+            icon={<Gamepad2 className="h-4 w-4" />}
+            label="Minigames"
+            open={state.minigames_open}
+            busy={busy}
+            onToggle={() => run(() => adminMinigamesOpen(!state.minigames_open))}
+          />
+        </div>
       </div>
 
       <main className="flex flex-1 flex-col items-center justify-center gap-5 p-6">
@@ -541,6 +564,48 @@ function PayoutRankCoins({
         </>
       )}
     </div>
+  );
+}
+
+// A master open/close switch for the whole store or all minigames. Green when
+// open, muted when closed; one tap flips it for every player at once.
+function OpenToggle({
+  icon,
+  label,
+  open,
+  busy,
+  onToggle,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  open: boolean;
+  busy: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={busy}
+      aria-pressed={open}
+      className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 ${
+        open
+          ? "border-green-500 bg-green-50 text-green-800 dark:bg-green-950/40 dark:text-green-200"
+          : "bg-card text-muted-foreground hover:bg-muted"
+      }`}
+    >
+      <span className="flex items-center gap-1.5">
+        {icon}
+        {label}
+      </span>
+      <span
+        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+          open ? "bg-green-500 text-white" : "bg-muted text-muted-foreground"
+        }`}
+      >
+        {open ? "Open" : "Dicht"}
+      </span>
+    </button>
   );
 }
 

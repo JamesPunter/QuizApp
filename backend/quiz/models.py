@@ -243,6 +243,11 @@ class GameState(models.Model):
     current_index = models.IntegerField(default=-1)  # -1 = waiting / not started
     entry_state = models.CharField(max_length=20, choices=ENTRY_CHOICES, default=OPEN)
     scores_visible = models.BooleanField(default=False)
+    # Master switches the admins flip to open/close the whole store and all the
+    # minigames at once (there is no per-item toggle). Both start closed and are
+    # reset to closed on a game reset.
+    store_open = models.BooleanField(default=False)
+    minigames_open = models.BooleanField(default=False)
     # Set once the end-of-quiz rank coins have been handed out (when the final
     # question is scored), so the payout runs exactly once. Cleared on reset.
     rank_coins_awarded = models.BooleanField(default=False)

@@ -216,6 +216,10 @@ export interface GameState {
   current_index: number;
   entry_state: EntryState;
   scores_visible: boolean;
+  // Master open/close switches the admins control; both start closed. When
+  // false, players can't use the store / minigames at all.
+  store_open: boolean;
+  minigames_open: boolean;
   // True once both outcome markets are settled and the rank coins are paid out;
   // unlocks the final scores + budgets for every player.
   results_published: boolean;
@@ -494,6 +498,22 @@ export function adminScoresVisible(visible: boolean): Promise<GameState> {
   return request<GameState>("/api/admin/scores-visible/", {
     method: "POST",
     body: { visible },
+  });
+}
+
+// Master switch: open or close the whole store for all players.
+export function adminStoreOpen(open: boolean): Promise<GameState> {
+  return request<GameState>("/api/admin/store-open/", {
+    method: "POST",
+    body: { open },
+  });
+}
+
+// Master switch: open or close all minigames for all players.
+export function adminMinigamesOpen(open: boolean): Promise<GameState> {
+  return request<GameState>("/api/admin/minigames-open/", {
+    method: "POST",
+    body: { open },
   });
 }
 
