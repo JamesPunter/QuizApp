@@ -94,8 +94,8 @@ QUESTIONS = [
     },
     # Q13
     {"type": "text", "text": "Wie was de biggest cuck van het Hyperion?"},
-    # Q14 — intentionally left blank (placeholder, to be filled in later).
-    {"type": "text", "text": "Vraag 14 (volgt nog)"},
+    # Q14
+    {"type": "text", "text": "Wanneer vallen free thinkers door de mand?"},
     # Q15
     {
         "type": "multiple_choice",
