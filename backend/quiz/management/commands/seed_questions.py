@@ -58,23 +58,7 @@ QUESTIONS = [
     # Q8
     {"type": "text", "text": "Hoe lang is de langste voorhuid ter wereld?"},
     # Q9
-    {
-        "type": "text",
-        "text": (
-            "Mark Spronk is voor het 3e jaar op rij op fietsvakantie. Op zijn "
-            "vorige vakantie is hij bevriend geraakt met meneer Epstein. Dit jaar "
-            "gaat hij samen met meneer Epstein naar Oekraïne voor een betaalde "
-            "jachtvakantie op niets wetende burgers. Mark Spronk rijdt onderweg "
-            "naar een stadje een familie van 5 dood, waarvan 1 zwanger is met een "
-            "baby van 15 weken oud. Tijdens de jachtvakantie maakt Mark 2 keer een "
-            "triple kill en zorgt hij ook voor een ongeluk waar een dozijn mensen "
-            "bij overlijden. Tijdens zijn vakantie daar blijkt de kolencentrale "
-            "waar Mark Spronk de eigenaar van is, opgeblazen, waarbij 7 mensen om "
-            "het leven komen.\n\n"
-            "Voor hoeveel doden zorgt Mark Spronk tijdens zijn vakantie — direct, "
-            "indirect en wettelijk levensvatbaar?"
-        ),
-    },
+    {"type": "text", "text": "Lees de vraag op de slide"},
     # Q10
     {
         "type": "text",
