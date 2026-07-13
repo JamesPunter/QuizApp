@@ -24,7 +24,6 @@ import BottomNav from "@/components/BottomNav";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useGameState } from "@/lib/useGameState";
-import { challengeFor } from "@/lib/challenges";
 import {
   adminConfirmPurchase,
   adminRejectPurchase,
@@ -99,6 +98,7 @@ export default function ActivityPage() {
         <ChallengePanel
           roster={state.roster}
           statuses={state.challenge.statuses}
+          texts={state.challenge.texts}
           reward={state.challenge.reward}
           busy={busy}
           onSave={(statuses) => run(() => adminSaveChallenges(statuses))}
@@ -260,12 +260,14 @@ function PurchasesPanel({
 function ChallengePanel({
   roster,
   statuses,
+  texts,
   reward,
   busy,
   onSave,
 }: {
   roster: string[];
   statuses: Record<string, ChallengeStatus>;
+  texts: Record<string, string>;
   reward: number;
   busy: boolean;
   onSave: (statuses: Record<string, ChallengeStatus>) => Promise<void>;
@@ -317,7 +319,7 @@ function ChallengePanel({
             >
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{name}</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">{challengeFor(name)}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{texts[name] ?? ""}</p>
               </div>
               <div className="flex shrink-0 gap-1.5">
                 <button

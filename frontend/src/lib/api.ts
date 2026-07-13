@@ -232,6 +232,9 @@ export interface GameState {
   you: {
     username: string;
     is_admin: boolean;
+    // This viewer's own personal challenge text. Only ever their own; the full
+    // map is admin-only (see challenge.texts).
+    my_challenge: string;
     my_answer: string | null;
     my_bonus_answer: string | null;
     my_mark: boolean | null;
@@ -270,6 +273,9 @@ export interface GameState {
     factor: number;
     // Coins paid to a player when their challenge is approved as completed.
     reward: number;
+    // Every player's challenge text, for the admin Activity page. Admin only;
+    // an empty map for players (they get their own via you.my_challenge).
+    texts: Record<string, string>;
   };
   // The eight individual "betjes" + the live odds multiplier. Players are shown
   // every market except the one about themselves.

@@ -109,7 +109,7 @@ export default function TussenstandPage() {
       <header className="flex items-center justify-between gap-1 px-2 py-2">
         <UsernameBadge username={username} />
         <div className="flex items-center gap-1">
-        {!admin && <ChallengeInfoButton username={username} />}
+        {!admin && <ChallengeInfoButton challenge={state.you.my_challenge} />}
         {admin && (
           <button
             onClick={toggleScoresVisible}

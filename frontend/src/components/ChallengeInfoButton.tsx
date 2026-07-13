@@ -2,14 +2,13 @@
 
 import { useState } from "react";
 import { Info, Target, X } from "lucide-react";
-import { challengeFor } from "@/lib/challenges";
 
 // A small "i" button for the header of every player page. Tapping it opens a
-// dialog with that player's personalized challenge. The challenge text is mock
-// data for now (see lib/challenges.ts).
-export default function ChallengeInfoButton({ username }: { username: string }) {
+// dialog with that player's personalized challenge. The text comes from the
+// polled game state (you.my_challenge) so only the viewer's own challenge is
+// ever sent to their device.
+export default function ChallengeInfoButton({ challenge }: { challenge: string }) {
   const [open, setOpen] = useState(false);
-  const challenge = challengeFor(username);
 
   return (
     <>

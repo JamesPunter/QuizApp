@@ -144,7 +144,7 @@ export default function QuizPage() {
       <header className="flex items-center justify-between px-2 py-2">
         <UsernameBadge username={username} />
         <div className="flex items-center gap-1">
-          <ChallengeInfoButton username={username} />
+          <ChallengeInfoButton challenge={state.you.my_challenge} />
           <button
             onClick={handleLogout}
             aria-label="Uitloggen"

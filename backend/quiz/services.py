@@ -16,6 +16,7 @@ from .models import (
     CHALLENGE_COMPLETION_REWARD,
     CHALLENGE_MARKET,
     CHALLENGE_ODDS_FACTOR,
+    challenge_text_for,
     COIN_PACK_COINS,
     COIN_PACK_PRICE_EUR,
     PUBQUIZ_PRICE_EUR,
@@ -262,6 +263,13 @@ def challenge_statuses():
     return statuses
 
 
+def challenge_texts():
+    """{username: challenge text} for the full cast. Admin-only — sent to
+    quizmasters so they can see every player's challenge on the Activity page;
+    players only ever receive their own text (see build_state)."""
+    return {name: challenge_text_for(name) for name in PLAYER_USERNAMES}
+
+
 # --- Activity feed (admin-only live log) -------------------------------------
 
 # Short Dutch labels for the outcome markets, used in activity lines.
@@ -502,6 +510,9 @@ def build_state(user):
         "you": {
             "username": user.username,
             "is_admin": is_admin,
+            # This viewer's own personal challenge text. Only their own is ever
+            # sent to them; the full map goes to admins only (challenge.texts).
+            "my_challenge": challenge_text_for(user.username),
             "my_answer": my_answer,
             "my_bonus_answer": my_bonus_answer,
             "my_mark": my_mark,
@@ -540,6 +551,10 @@ def build_state(user):
             "factor": CHALLENGE_ODDS_FACTOR,
             # Coins a player is paid when their challenge is approved as completed.
             "reward": CHALLENGE_COMPLETION_REWARD,
+            # Every player's challenge text, for the admin Activity page. Admins
+            # only — players get an empty map here and just their own text in
+            # `you.my_challenge`, so no one can read another's challenge.
+            "texts": challenge_texts() if is_admin else {},
         },
         # Individual "betjes": the eight yes/no proposition markets + the live
         # odds multiplier. The client hides the viewer's own market.

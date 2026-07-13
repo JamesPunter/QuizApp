@@ -72,7 +72,7 @@ export default function BetjePage() {
           )}
         </div>
         <div className="flex items-center gap-1">
-          {!admin && <ChallengeInfoButton username={username} />}
+          {!admin && <ChallengeInfoButton challenge={state.you.my_challenge} />}
           <button
             onClick={handleLogout}
             aria-label="Uitloggen"

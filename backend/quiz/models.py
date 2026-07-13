@@ -61,6 +61,31 @@ CHALLENGE_ODDS_FACTOR = 1.8
 # Player.challenge_reward_paid so re-toggling the verdict never pays twice.
 CHALLENGE_COMPLETION_REWARD = 500
 
+# Each player's personal challenge text, keyed by canonical PLAYER_USERNAMES
+# name. These live server-side (not in the frontend bundle) so a player can only
+# ever see their own — the poll payload hands a player just their own text and
+# only admins receive the full map (see services.build_state / challenge_texts).
+CHALLENGE_TEXTS = {
+    "Tris": "Achterhaal van 2 verschillende mensen hun pincode.",
+    "Ivar": "Verkondig 3 extreem linkse meningen die de hele groep hoort, voorbeeld: Ik ben voor genderneutrale wc's.",
+    "Levi": "Wees extreem humble, bedank 3x iemand op je knieën en buig je hoofd.",
+    "Stein": "FaceTime 3x iemand uit deze lijst, ze moeten opnemen en je moet ze even aan de groep tonen dat iedereen het door heeft: Stella, Marit, Jill, Nynke, Loewe, Mado pado.",
+    "Max": "Kus Tris, Niels en Ivar op hun wang. Kijk ze in hun ogen en zeg: ik hou van jou.",
+    "Matta": "Doe 2x de worm op de grond voor de groep.",
+    "Sep": "Zeg tegen 3 mensen dat die chick met die grote tieten van je reis echt hele goeie borsten had.",
+    "Niels": "Overtuig iemand om een buikshot bij je te nemen.",
+}
+
+# Shown for any name without an assigned challenge (mirrors the old client-side
+# fallback so behaviour is unchanged for an unexpected name).
+CHALLENGE_FALLBACK_TEXT = "Nog geen challenge toegewezen."
+
+
+def challenge_text_for(name: str) -> str:
+    """This player's personal challenge text, or the fallback for a name that
+    has none."""
+    return CHALLENGE_TEXTS.get(name, CHALLENGE_FALLBACK_TEXT)
+
 # --- Individual "betjes" -----------------------------------------------------
 # Eight yes/no proposition bets, each about one player doing something during the
 # quiz. A bettor stakes coins that the proposition WILL happen at the market's
